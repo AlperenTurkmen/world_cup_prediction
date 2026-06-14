@@ -62,11 +62,11 @@ export default async function LeaguePage({ params }: LeaguePageProps) {
 
   const { data: members } = await supabase
     .from("league_members")
-    .select("entry_id, role, status, joined_at, entries ( username )")
+    .select("entry_id, role, status, joined_at, entries ( username, is_hidden )")
     .eq("league_id", league.id);
 
   const activeMembers: MemberRow[] = (members ?? [])
-    .filter((m: any) => m.status === "active")
+    .filter((m: any) => m.status === "active" && !m.entries?.is_hidden)
     .map((m: any) => ({
       entryId: m.entry_id,
       username: m.entries?.username ?? "Unknown",
@@ -77,7 +77,7 @@ export default async function LeaguePage({ params }: LeaguePageProps) {
 
   const pending = isOwner
     ? (members ?? [])
-        .filter((m: any) => m.status === "pending")
+        .filter((m: any) => m.status === "pending" && !m.entries?.is_hidden)
         .map((m: any) => ({
           entryId: m.entry_id,
           username: m.entries?.username ?? "Unknown",

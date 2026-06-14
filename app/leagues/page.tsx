@@ -14,6 +14,7 @@ interface MyLeague {
   name: string;
   slug: string;
   visibility: string;
+  is_hidden?: boolean;
   status: string;
   role: string;
 }
@@ -32,12 +33,13 @@ async function getData(playerId: number) {
   const [mineRes, publicRes] = await Promise.all([
     supabase
       .from("league_members")
-      .select("status, role, leagues ( id, name, slug, visibility )")
+      .select("status, role, leagues ( id, name, slug, visibility, is_hidden )")
       .eq("entry_id", playerId),
     supabase
       .from("leagues")
       .select("id, name, slug, league_members ( entry_id, status )")
       .eq("visibility", "public")
+      .eq("is_hidden", false)
       .order("created_at", { ascending: false }),
   ]);
 
@@ -47,10 +49,11 @@ async function getData(playerId: number) {
       name: m.leagues?.name,
       slug: m.leagues?.slug,
       visibility: m.leagues?.visibility,
+      is_hidden: m.leagues?.is_hidden,
       status: m.status,
       role: m.role,
     }))
-    .filter((l: MyLeague) => l.id);
+    .filter((l: MyLeague) => l.id && !l.is_hidden);
 
   const myIds = new Set(myLeagues.map((l) => l.id));
 

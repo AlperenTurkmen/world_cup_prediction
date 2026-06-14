@@ -16,6 +16,8 @@ export interface LeagueRow {
   join_code: string;
   owner_id: number;
   start_match_id: number | null;
+  is_hidden: boolean;
+  hidden_at: string | null;
   created_at: string;
 }
 
@@ -80,6 +82,7 @@ export async function getLeagueBySlug(slug: string): Promise<LeagueRow | null> {
     .from("leagues")
     .select("*")
     .eq("slug", slug)
+    .eq("is_hidden", false)
     .maybeSingle();
   if (error) throw error;
   return (data as LeagueRow | null) ?? null;
@@ -92,6 +95,7 @@ export async function getLeagueByCode(code: string): Promise<LeagueRow | null> {
     .from("leagues")
     .select("*")
     .eq("join_code", code)
+    .eq("is_hidden", false)
     .maybeSingle();
   if (error) throw error;
   return (data as LeagueRow | null) ?? null;

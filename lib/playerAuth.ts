@@ -82,7 +82,17 @@ export async function getCurrentPlayer(): Promise<PlayerSession | null> {
   try {
     const store = await cookies();
     const token = store.get(PLAYER_COOKIE)?.value;
-    return verifyPlayerSessionToken(token);
+    const session = verifyPlayerSessionToken(token);
+    if (!session) return null;
+
+    const { data, error } = await getSupabaseAdmin()
+      .from("entries")
+      .select("id, username")
+      .eq("id", session.id)
+      .eq("is_hidden", false)
+      .maybeSingle();
+    if (error || !data) return null;
+    return { id: data.id, username: data.username };
   } catch {
     return null;
   }

@@ -19,6 +19,7 @@ export async function POST(req: Request) {
       .from("entries")
       .select("id, username, password_hash")
       .ilike("username", username.trim())
+      .eq("is_hidden", false)
       .single();
 
     if (error || !entry) {

@@ -28,12 +28,13 @@ export async function GET() {
     const [mineRes, publicRes] = await Promise.all([
       supabase
         .from("league_members")
-        .select("status, role, leagues ( id, name, slug, visibility, join_policy )")
+        .select("status, role, leagues ( id, name, slug, visibility, join_policy, is_hidden )")
         .eq("entry_id", player.id),
       supabase
         .from("leagues")
         .select("id, name, slug, league_members ( entry_id )")
         .eq("visibility", "public")
+        .eq("is_hidden", false)
         .order("created_at", { ascending: false }),
     ]);
 
@@ -49,7 +50,7 @@ export async function GET() {
       ...m.leagues,
       status: m.status,
       role: m.role,
-    }));
+    })).filter((l: any) => l.id && !l.is_hidden);
 
     const publicLeagues = (publicRes.data ?? []).map((l: any) => ({
       id: l.id,

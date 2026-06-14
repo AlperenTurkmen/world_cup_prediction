@@ -53,6 +53,8 @@ create table if not exists entries (
   google_sub    text,
   google_email  text,
   google_linked_at timestamptz,
+  is_hidden     boolean not null default false,
+  hidden_at     timestamptz,
   created_at    timestamptz not null default now()
 );
 create unique index if not exists entries_username_lower_idx
@@ -64,6 +66,9 @@ alter table entries
   add column if not exists google_sub text,
   add column if not exists google_email text,
   add column if not exists google_linked_at timestamptz;
+alter table entries
+  add column if not exists is_hidden boolean not null default false,
+  add column if not exists hidden_at timestamptz;
 create unique index if not exists entries_google_sub_idx
   on entries (google_sub)
   where google_sub is not null;
@@ -78,6 +83,26 @@ create table if not exists follows (
   created_at  timestamptz not null default now(),
   primary key (follower_id, followed_id),
   constraint no_self_follow check (follower_id <> followed_id)
+);
+
+
+-- -----------------------------------------------------------------------------
+-- 2c. entry_drafts — work-in-progress manual predictions, before they become an
+--     immutable entry. Keyed by the Google account (google_sub) so a user can
+--     save progress and resume on any device by signing in with Google again.
+--     A draft holds partial group scorelines and knockout winner picks as JSON;
+--     it is deleted the moment the entry is finalized (see the manual submit
+--     route). Never scored — purely a resumable scratchpad.
+--       group_scores  { "<match_no 1..72>": { "h": int, "a": int }, ... }
+--       ko_winners    { "<match_no 73..104>": "<team name>", ... }
+-- -----------------------------------------------------------------------------
+create table if not exists entry_drafts (
+  google_sub   text primary key,
+  google_email text,
+  username     text,
+  group_scores jsonb not null default '{}'::jsonb,
+  ko_winners   jsonb not null default '{}'::jsonb,
+  updated_at   timestamptz not null default now()
 );
 
 
@@ -280,6 +305,11 @@ w as (
     coalesce(max(value) filter (where key = 'W_RANK_ADJACENT'), 1) as w_rank_adjacent
   from scoring_weights
 ),
+visible_entries as (
+  select *
+  from entries
+  where coalesce(is_hidden, false) = false
+),
 
 -- ── Dimension A: count how many matches matched on each axis, per entry ──────
 -- The fairness guard (result logged, eligible, entry predates logging) is the
@@ -312,7 +342,7 @@ group_raw as (
                        and (m.result_logged_at is null or e.created_at < m.result_logged_at)
                        and p.pred_home = m.home_goals and p.pred_away = m.away_goals
                       then 1 else 0 end), 0) as n_exact
-  from entries e
+  from visible_entries e
   left join predictions p on p.entry_id = e.id
   -- Apply the group-match cutoff here: matches before the league's start game
   -- are filtered out, so they left-join to NULL and the `home_goals is not null`
@@ -407,7 +437,7 @@ ranking_raw as (
                       then 1 else 0 end), 0) as n_rank_exact,
     coalesce(sum(case when eg.all_eligible and ar.rank is not null and abs(pr.rank - ar.rank) = 1
                       then 1 else 0 end), 0) as n_rank_adjacent
-  from entries e
+  from visible_entries e
   left join pred_ranks pr            on pr.entry_id = e.id
   left join entry_group_eligible eg  on eg.entry_id = pr.entry_id and eg.group_letter = pr.group_letter
   left join actual_ranks ar          on ar.team = pr.team
@@ -418,7 +448,7 @@ ranking_raw as (
 knockout_raw as (
   select e.id as entry_id,
     coalesce(sum(case when aa.team is not null then rw.weight else 0 end), 0) as knockout_points
-  from entries e
+  from visible_entries e
   left join advancement_predictions ap on ap.entry_id = e.id
   left join actual_advancers aa
          on aa.round = ap.round and aa.team = ap.team
@@ -432,7 +462,7 @@ champ as (
   select e.id as entry_id,
     cp.team as champion_pick,
     coalesce(max(case when ca.team is not null then 1 else 0 end), 0) as champion_correct
-  from entries e
+  from visible_entries e
   left join advancement_predictions cp on cp.entry_id = e.id and cp.round = 'CHAMPION'
   left join actual_advancers ca
          on ca.round = 'CHAMPION' and ca.team = cp.team and e.created_at < ca.logged_at
@@ -454,7 +484,7 @@ scored as (
     gr.n_exact                                            as exact_count,
     champ.champion_correct                                as champion_correct,
     e.created_at                                          as created_at
-  from entries e
+  from visible_entries e
   cross join w
   join group_raw    gr on gr.entry_id = e.id
   join ranking_raw  rr on rr.entry_id = e.id
@@ -663,12 +693,17 @@ create table if not exists leagues (
   join_code   text unique not null,            -- shareable link token (public & private)
   owner_id    int  not null references entries(id) on delete cascade,
   start_match_id int references matches(id),    -- NULL = whole tournament
+  is_hidden   boolean not null default false,
+  hidden_at   timestamptz,
   created_at  timestamptz not null default now(),
   constraint leagues_name_len check (char_length(name) between 1 and 60)
 );
 
 alter table leagues
   add column if not exists start_match_id int references matches(id);
+alter table leagues
+  add column if not exists is_hidden boolean not null default false,
+  add column if not exists hidden_at timestamptz;
 
 
 -- -----------------------------------------------------------------------------
@@ -721,6 +756,7 @@ as $$
    and lm.league_id = l.id
    and lm.status = 'active'
   where l.id = p_league_id
+    and coalesce(l.is_hidden, false) = false
   order by cl.total desc, cl.exact_count desc, cl.champion_correct desc,
            cl.created_at asc;
 $$;

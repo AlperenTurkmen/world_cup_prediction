@@ -46,7 +46,7 @@ export async function GET(_req: Request, { params }: RouteContext) {
     const supabase = getSupabaseAdmin();
     const { data: members, error: membersErr } = await supabase
       .from("league_members")
-      .select("entry_id, role, status, joined_at, entries ( username )")
+      .select("entry_id, role, status, joined_at, entries ( username, is_hidden )")
       .eq("league_id", league.id);
 
     if (membersErr) {
@@ -58,12 +58,12 @@ export async function GET(_req: Request, { params }: RouteContext) {
     }
 
     const activeIds = (members ?? [])
-      .filter((m: any) => m.status === "active")
+      .filter((m: any) => m.status === "active" && !m.entries?.is_hidden)
       .map((m: any) => m.entry_id);
 
     const pending = isOwner
       ? (members ?? [])
-          .filter((m: any) => m.status === "pending")
+          .filter((m: any) => m.status === "pending" && !m.entries?.is_hidden)
           .map((m: any) => ({
             entryId: m.entry_id,
             username: m.entries?.username ?? "Unknown",

@@ -23,6 +23,7 @@ export default async function UserProfilePage({ params }: UserPageProps) {
     .from("entries")
     .select("id, username, created_at")
     .ilike("username", decodedUsername)
+    .eq("is_hidden", false)
     .single();
 
   if (entryErr || !entry) {
@@ -44,22 +45,22 @@ export default async function UserProfilePage({ params }: UserPageProps) {
   // 3. Fetch followers
   const { data: followersData } = await supabase
     .from("follows")
-    .select("follower:entries(id, username)")
+    .select("follower:entries(id, username, is_hidden)")
     .eq("followed_id", entry.id);
 
   const followers = (followersData || [])
     .map((f: any) => f.follower)
-    .filter(Boolean);
+    .filter((f: any) => f && !f.is_hidden);
 
   // 4. Fetch following
   const { data: followingData } = await supabase
     .from("follows")
-    .select("followed:entries(id, username)")
+    .select("followed:entries(id, username, is_hidden)")
     .eq("follower_id", entry.id);
 
   const following = (followingData || [])
     .map((f: any) => f.followed)
-    .filter(Boolean);
+    .filter((f: any) => f && !f.is_hidden);
 
   // 5. Check if logged-in visitor is following this profile
   const currentUser = await getCurrentPlayer();

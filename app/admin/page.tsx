@@ -1,10 +1,17 @@
 import { isAdminAuthenticated } from "@/lib/adminAuth";
-import { getMatches, getCanonicalTeams, getActualAdvancers } from "@/lib/adminData";
+import {
+  getMatches,
+  getCanonicalTeams,
+  getActualAdvancers,
+  getAdminEntries,
+  getAdminLeagues,
+} from "@/lib/adminData";
 import LoginForm from "./LoginForm";
 import LogoutButton from "./LogoutButton";
 import ResultsUpload from "./ResultsUpload";
 import GroupResults from "./GroupResults";
 import Advancers from "./Advancers";
+import Moderation from "./Moderation";
 
 export const dynamic = "force-dynamic";
 
@@ -22,12 +29,14 @@ export default async function AdminPage() {
   }
 
   // Authenticated — load the data the forms need.
-  let matches, teams, advancers, loadError: string | null = null;
+  let matches, teams, advancers, entries, leagues, loadError: string | null = null;
   try {
-    [matches, teams, advancers] = await Promise.all([
+    [matches, teams, advancers, entries, leagues] = await Promise.all([
       getMatches(),
       getCanonicalTeams(),
       getActualAdvancers(),
+      getAdminEntries(),
+      getAdminLeagues(),
     ]);
   } catch (err) {
     console.error("admin data load failed:", err);
@@ -52,6 +61,7 @@ export default async function AdminPage() {
         </div>
       ) : (
         <div className="mt-8 space-y-8">
+          <Moderation entries={entries ?? []} leagues={leagues ?? []} />
           <ResultsUpload />
           <GroupResults matches={matches} />
           <Advancers teams={teams ?? []} initial={advancers!} />

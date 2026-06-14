@@ -16,6 +16,27 @@ export interface MatchRow {
   away_goals: number | null;
 }
 
+export interface AdminEntryRow {
+  id: number;
+  username: string;
+  created_at: string;
+  is_hidden: boolean;
+  hidden_at: string | null;
+}
+
+export interface AdminLeagueRow {
+  id: number;
+  name: string;
+  slug: string;
+  visibility: string;
+  owner_id: number;
+  owner_username: string;
+  member_count: number;
+  is_hidden: boolean;
+  hidden_at: string | null;
+  created_at: string;
+}
+
 /**
  * The 72 group fixtures in chronological (kickoff) order — same order the admin
  * result screen and the league "start game" dropdown present them. match_no is
@@ -64,4 +85,37 @@ export async function getActualAdvancers(): Promise<Record<AdvRound, string[]>> 
     if (row.round in result) result[row.round].push(row.team);
   }
   return result;
+}
+
+/** Entries shown in the admin moderation panel, including hidden ones. */
+export async function getAdminEntries(): Promise<AdminEntryRow[]> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("entries")
+    .select("id, username, created_at, is_hidden, hidden_at")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as AdminEntryRow[];
+}
+
+/** Leagues shown in the admin moderation panel, including hidden ones. */
+export async function getAdminLeagues(): Promise<AdminLeagueRow[]> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("leagues")
+    .select("id, name, slug, visibility, owner_id, is_hidden, hidden_at, created_at, owner:entries!leagues_owner_id_fkey(username), league_members(entry_id, status)")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    visibility: row.visibility,
+    owner_id: row.owner_id,
+    owner_username: row.owner?.username ?? "Unknown",
+    member_count: (row.league_members ?? []).filter((m: any) => m.status === "active").length,
+    is_hidden: row.is_hidden,
+    hidden_at: row.hidden_at,
+    created_at: row.created_at,
+  }));
 }

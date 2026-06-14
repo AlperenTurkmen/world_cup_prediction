@@ -52,7 +52,7 @@ export async function GET(req: Request) {
       followedIds.length > 0
         ? supabase
             .from("predictions")
-            .select("pred_home, pred_away, entries ( username )")
+            .select("pred_home, pred_away, entries ( username, is_hidden )")
             .eq("match_id", matchId)
             .in("entry_id", followedIds)
         : Promise.resolve({ data: [], error: null }),
@@ -70,11 +70,13 @@ export async function GET(req: Request) {
       ? { username: player.username, predHome: myPredRes.data.pred_home, predAway: myPredRes.data.pred_away }
       : null;
 
-    const friendPredictions = (predsRes.data || []).map((p: any) => ({
-      username: p.entries?.username || "Unknown",
-      predHome: p.pred_home,
-      predAway: p.pred_away,
-    }));
+    const friendPredictions = (predsRes.data || [])
+      .filter((p: any) => p.entries && !p.entries.is_hidden)
+      .map((p: any) => ({
+        username: p.entries?.username || "Unknown",
+        predHome: p.pred_home,
+        predAway: p.pred_away,
+      }));
 
     return NextResponse.json({ ok: true, myPrediction, friendPredictions });
   } catch (err) {

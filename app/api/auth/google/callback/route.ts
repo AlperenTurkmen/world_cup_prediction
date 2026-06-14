@@ -90,6 +90,7 @@ export async function GET(req: Request) {
       .from("entries")
       .select("id, username")
       .eq("google_sub", identity.sub)
+      .eq("is_hidden", false)
       .maybeSingle();
 
     if (linkedErr) {
