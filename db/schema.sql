@@ -246,3 +246,60 @@ begin
   return v_entry_id;
 end;
 $$;
+
+
+-- =============================================================================
+-- Admin write helpers (used by the cookie-protected /api/admin routes).
+-- =============================================================================
+
+-- replace_actual_advancers() — atomically replace the set of teams that
+-- actually reached a round (POST /api/admin/advancers). Deletes the round's
+-- current rows and inserts the new set in one transaction.
+create or replace function replace_actual_advancers(
+  p_round text,
+  p_teams text[]
+) returns void
+language plpgsql
+as $$
+begin
+  if p_round not in ('R32','R16','QF','SF','FINAL','CHAMPION') then
+    raise exception 'invalid round: %', p_round;
+  end if;
+  delete from actual_advancers where round = p_round;
+  insert into actual_advancers (round, team)
+  select p_round, t.team from unnest(p_teams) as t(team);
+end;
+$$;
+
+-- apply_master_results() — one-shot import from the admin's filled master
+-- workbook (POST /api/admin/upload-results). Updates all provided group scores
+-- and replaces every round's actual_advancers, atomically.
+--   p_results    jsonb  [{ "match_no": int, "home_goals": int, "away_goals": int }, ...]
+--   p_advancers  jsonb  { "R32":[...], ..., "FINAL":[...], "CHAMPION": "<team>" }
+create or replace function apply_master_results(
+  p_results   jsonb,
+  p_advancers jsonb
+) returns void
+language plpgsql
+as $$
+declare
+  v_round text;
+begin
+  -- Group actual scores.
+  update matches m
+     set home_goals = (r->>'home_goals')::int,
+         away_goals = (r->>'away_goals')::int
+  from jsonb_array_elements(p_results) as r
+  where m.match_no = (r->>'match_no')::int;
+
+  -- Replace every round's advancers.
+  delete from actual_advancers;
+  foreach v_round in array array['R32','R16','QF','SF','FINAL'] loop
+    insert into actual_advancers (round, team)
+    select v_round, t.team
+    from jsonb_array_elements_text(p_advancers->v_round) as t(team);
+  end loop;
+  insert into actual_advancers (round, team)
+  values ('CHAMPION', p_advancers->>'CHAMPION');
+end;
+$$;

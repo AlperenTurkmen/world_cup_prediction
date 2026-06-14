@@ -22,7 +22,7 @@ Client Component.**
 | 2     | Parser + seed (`lib/parseWorkbook.ts`, `scripts/seed.ts`) | ✅ Done — [`lib/`](lib/parseWorkbook.ts), [`scripts/`](scripts/seed.ts) |
 | 3     | Upload flow (`/upload` + `POST /api/upload`) | ✅ Done — [`app/upload`](app/upload/page.tsx), [`app/api/upload`](app/api/upload/route.ts) |
 | 4     | Leaderboard page (`/`) | ✅ Done — [`app/page.tsx`](app/page.tsx) |
-| 5     | Admin results entry (`/admin`) | ⬜ |
+| 5     | Admin results entry (`/admin`) | ✅ Done — [`app/admin`](app/admin/page.tsx), [`app/api/admin`](app/api/admin/login/route.ts) |
 | 6     | Polish (mobile, error/empty states) | ⬜ |
 | 7     | Deploy to Vercel | ⬜ |
 
@@ -56,6 +56,21 @@ canonical 48-team list built from the `Matches` sheet. A non-recalced file
 The parser fixture test (`lib/parseWorkbook.test.ts`, run via `npm test`)
 guards this against the master workbook: 72 group rows, advancer counts
 32/16/8/4/2, champion = Spain, and group names equal to the `Matches` pairs.
+
+## Admin (`/admin`)
+
+`/admin` is gated by a password (`ADMIN_PASSWORD`). A successful login sets a
+signed, httpOnly session cookie (HMAC keyed by `AUTH_SECRET`, 7-day expiry);
+every admin API verifies it server-side. Once in, the admin can:
+
+- **Quick import** — upload the filled master *results* workbook to set all 72
+  group scores and every round's advancers at once (runs the same
+  `parseWorkbook`, then `apply_master_results` in one transaction).
+- **Group results** — enter/clear each game's score (saved per row).
+- **Advancement actuals** — tick the teams that reached each round; each Save
+  replaces that round's set (`replace_actual_advancers`).
+
+The leaderboard reflects all of these live on the next page load.
 
 ### Environment variables (`.env.local`, and in Vercel)
 
