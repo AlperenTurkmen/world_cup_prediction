@@ -1,23 +1,12 @@
 import Link from "next/link";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import GamesPanel, { type Match } from "./GamesPanel";
+import LeaderboardTable, { type LeaderboardRow } from "./LeaderboardTable";
 
 // The leaderboard is computed live from the view; never cache it.
 export const dynamic = "force-dynamic";
 
 const TOTAL_GROUP_MATCHES = 72;
-
-interface LeaderboardRow {
-  entry_id: number;
-  username: string;
-  champion_pick: string | null;
-  group_points: number;
-  ranking_points: number;
-  knockout_points: number;
-  total: number;
-  exact_count: number;
-  champion_correct: number;
-  created_at: string;
-}
 
 interface LeaderboardData {
   rows: LeaderboardRow[];
@@ -25,11 +14,15 @@ interface LeaderboardData {
   error: boolean;
 }
 
-async function getLeaderboard(): Promise<LeaderboardData> {
+interface PageData extends LeaderboardData {
+  matches: Match[];
+}
+
+async function getPageData(): Promise<PageData> {
   try {
     const supabase = getSupabaseAdmin();
 
-    const [board, results] = await Promise.all([
+    const [board, results, matchesRes] = await Promise.all([
       supabase
         .from("leaderboard")
         .select("*")
@@ -42,87 +35,68 @@ async function getLeaderboard(): Promise<LeaderboardData> {
         .select("match_no", { count: "exact", head: true })
         .not("home_goals", "is", null)
         .not("away_goals", "is", null),
+      supabase
+        .from("matches")
+        .select("id, match_no, home_team, away_team, kickoff_at, home_goals, away_goals")
+        .order("match_no", { ascending: true }),
     ]);
 
     if (board.error) {
       console.error("leaderboard query failed:", board.error);
-      return { rows: [], resultsLogged: 0, error: true };
+      return { rows: [], resultsLogged: 0, error: true, matches: [] };
     }
 
     return {
       rows: (board.data ?? []) as LeaderboardRow[],
       resultsLogged: results.count ?? 0,
       error: false,
+      matches: (matchesRes.data ?? []) as Match[],
     };
   } catch (err) {
     console.error("leaderboard load threw:", err);
-    return { rows: [], resultsLogged: 0, error: true };
+    return { rows: [], resultsLogged: 0, error: true, matches: [] };
   }
 }
 
 export default async function HomePage() {
-  const { rows, resultsLogged, error } = await getLeaderboard();
+  const { rows, resultsLogged, error, matches } = await getPageData();
   const updatedAt = new Date().toUTCString();
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
+    <main className="mx-auto max-w-7xl px-4 py-10">
       <h1 className="text-2xl font-bold">World Cup 2026 Leaderboard</h1>
 
-      {error ? (
-        <div className="mt-8 rounded-md border border-red-600/30 bg-red-600/10 p-4 text-sm text-red-700 dark:text-red-300">
-          The leaderboard is temporarily unavailable. Please try again shortly.
-        </div>
-      ) : rows.length === 0 ? (
-        <div className="mt-8 rounded-lg border border-black/10 p-6 text-sm opacity-70 dark:border-white/15">
-          No entries yet. Be the first to{" "}
-          <Link href="/upload" className="font-medium underline">
-            upload your predictions
-          </Link>
-          .
-        </div>
-      ) : (
-        <>
-          <p className="mt-2 text-sm opacity-70">
-            Results logged: <strong>{resultsLogged}</strong> / {TOTAL_GROUP_MATCHES} group games
-          </p>
+      <div className="mt-6 grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-8 items-start">
+        {/* ── Left: leaderboard ── */}
+        <div>
+          {error ? (
+            <div className="rounded-md border border-red-600/30 bg-red-600/10 p-4 text-sm text-red-700 dark:text-red-300">
+              The leaderboard is temporarily unavailable. Please try again shortly.
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="rounded-lg border border-black/10 p-6 text-sm opacity-70 dark:border-white/15">
+              No entries yet. Be the first to{" "}
+              <Link href="/upload" className="font-medium underline">
+                upload your predictions
+              </Link>
+              .
+            </div>
+          ) : (
+            <>
+              <p className="text-sm opacity-70">
+                Results logged: <strong>{resultsLogged}</strong> / {TOTAL_GROUP_MATCHES} group games
+              </p>
 
-          <div className="mt-6 overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-black/15 text-left dark:border-white/20">
-                  <th className="py-2 pr-3 font-semibold">#</th>
-                  <th className="py-2 pr-3 font-semibold">Player</th>
-                  <th className="py-2 pr-3 font-semibold">Champion pick</th>
-                  <th className="py-2 pr-3 text-right font-semibold">Total</th>
-                  <th className="hidden py-2 pr-3 text-right font-semibold tabular-nums sm:table-cell">Group</th>
-                  <th className="hidden py-2 pr-3 text-right font-semibold tabular-nums sm:table-cell">Ranking</th>
-                  <th className="hidden py-2 pr-3 text-right font-semibold tabular-nums sm:table-cell">Knockout</th>
-                  <th className="hidden py-2 text-right font-semibold tabular-nums sm:table-cell">Exact</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, i) => (
-                  <tr
-                    key={row.entry_id}
-                    className="border-b border-black/5 last:border-0 dark:border-white/10"
-                  >
-                    <td className="py-2 pr-3 tabular-nums opacity-60">{i + 1}</td>
-                    <td className="py-2 pr-3 font-medium">{row.username}</td>
-                    <td className="py-2 pr-3 opacity-80">{row.champion_pick ?? "—"}</td>
-                    <td className="py-2 pr-3 text-right font-semibold tabular-nums">{row.total}</td>
-                    <td className="hidden py-2 pr-3 text-right tabular-nums opacity-70 sm:table-cell">{row.group_points}</td>
-                    <td className="hidden py-2 pr-3 text-right tabular-nums opacity-70 sm:table-cell">{row.ranking_points}</td>
-                    <td className="hidden py-2 pr-3 text-right tabular-nums opacity-70 sm:table-cell">{row.knockout_points}</td>
-                    <td className="hidden py-2 text-right tabular-nums opacity-70 sm:table-cell">{row.exact_count}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              <LeaderboardTable rows={rows} />
 
-          <p className="mt-4 text-xs opacity-50">Last updated {updatedAt}</p>
-        </>
-      )}
+              <p className="mt-4 text-xs opacity-50">Last updated {updatedAt}</p>
+            </>
+          )}
+        </div>
+
+        {/* ── Right: games panel ── */}
+        {matches.length > 0 && <GamesPanel matches={matches} />}
+      </div>
     </main>
   );
 }

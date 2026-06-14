@@ -7,18 +7,25 @@ export { ADV_ROUNDS, type AdvRound };
 
 /** A group fixture row with its (possibly unset) actual result. */
 export interface MatchRow {
+  id: number;
   match_no: number;
   home_team: string;
   away_team: string;
+  kickoff_at: string | null;
   home_goals: number | null;
   away_goals: number | null;
 }
 
-/** The 72 group fixtures ordered by match number. */
+/**
+ * The 72 group fixtures in chronological (kickoff) order — same order the admin
+ * result screen and the league "start game" dropdown present them. match_no is
+ * the tiebreak for games sharing a kickoff time (or with no kickoff set).
+ */
 export async function getMatches(): Promise<MatchRow[]> {
   const { data, error } = await getSupabaseAdmin()
     .from("matches")
-    .select("match_no, home_team, away_team, home_goals, away_goals")
+    .select("id, match_no, home_team, away_team, kickoff_at, home_goals, away_goals")
+    .order("kickoff_at", { ascending: true, nullsFirst: false })
     .order("match_no", { ascending: true });
   if (error) throw new Error(error.message);
   return (data ?? []) as MatchRow[];

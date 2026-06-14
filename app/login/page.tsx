@@ -8,6 +8,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirectTo") || "/";
+  const oauthError = searchParams.get("error");
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -47,6 +48,17 @@ function LoginForm() {
     }
   }
 
+  function googleErrorMessage(code: string | null): string | null {
+    if (!code) return null;
+    if (code === "google_config") return "Google sign-in is not configured yet.";
+    if (code === "google_denied") return "Google sign-in was cancelled.";
+    if (code === "google_state") return "Google sign-in expired. Please try again.";
+    return "Google sign-in failed. Please try again.";
+  }
+
+  const googleStartHref = `/api/auth/google/start?redirectTo=${encodeURIComponent(redirectTo)}`;
+  const displayedError = error ?? googleErrorMessage(oauthError);
+
   return (
     <div className="w-full max-w-md rounded-2xl border border-black/15 bg-white p-8 shadow-xl dark:border-white/10 dark:bg-[#111111]">
       <h1 className="text-2xl font-bold tracking-tight text-foreground">Sign In</h1>
@@ -54,7 +66,20 @@ function LoginForm() {
         Access your profile and manage your followed players.
       </p>
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+      <a
+        href={googleStartHref}
+        className="mt-6 flex w-full items-center justify-center rounded-lg border border-black/15 px-4 py-2.5 text-sm font-medium transition-colors hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
+      >
+        Continue with Google
+      </a>
+
+      <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-wide text-foreground/40">
+        <div className="h-px flex-1 bg-black/10 dark:bg-white/15" />
+        or
+        <div className="h-px flex-1 bg-black/10 dark:bg-white/15" />
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label htmlFor="username" className="block text-sm font-medium text-foreground">
             Username
@@ -85,9 +110,9 @@ function LoginForm() {
           />
         </div>
 
-        {error && (
+        {displayedError && (
           <div className="rounded-lg border border-red-600/30 bg-red-600/10 p-3 text-sm text-red-700 dark:text-red-300">
-            {error}
+            {displayedError}
           </div>
         )}
 

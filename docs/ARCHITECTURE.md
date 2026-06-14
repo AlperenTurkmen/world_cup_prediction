@@ -337,10 +337,12 @@ All three are cookie-protected and wrap DB calls to return clean JSON 500s.
 | `SUPABASE_URL` | server DB client | project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | server DB client | **secret, server-only** |
 | `ADMIN_PASSWORD` | `/api/admin/login` | the `/admin` password |
-| `AUTH_SECRET` | admin cookie signing | random; `openssl rand -hex 32` |
+| `AUTH_SECRET` | cookie signing | signs admin, player, and temporary Google cookies |
+| `GOOGLE_CLIENT_ID` | Google OAuth start route | web application client id |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth callback route | server-side code exchange secret |
 
 Locally they live in `.env.local` (gitignored). `scripts/seed.ts` auto-loads
-`.env.local`; Next loads it for `dev`/`build`. In Vercel, set all four in
+`.env.local`; Next loads it for `dev`/`build`. In Vercel, set all required values in
 project settings and redeploy after changes. Template: `.env.example`.
 
 ---
@@ -349,7 +351,7 @@ project settings and redeploy after changes. Template: `.env.example`.
 
 ```bash
 npm install
-cp .env.example .env.local      # fill in the four vars (Supabase optional for some work)
+cp .env.example .env.local      # fill in the env vars (Supabase optional for some work)
 npm run dev                     # http://localhost:3000
 
 npm test                        # parser fixture test (no DB needed)

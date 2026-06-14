@@ -1,10 +1,16 @@
 -- =============================================================================
--- Migration: Add Password Auth, Followers, and create_entry Stored Procedure
+-- Migration: Add Password Auth, Followers, Google Auth, and create_entry Stored Procedure
 -- Run this in your Supabase SQL Editor.
 -- =============================================================================
 
 -- 1. Add password_hash column to entries table
 alter table entries add column if not exists password_hash text;
+alter table entries add column if not exists google_sub text;
+alter table entries add column if not exists google_email text;
+alter table entries add column if not exists google_linked_at timestamptz;
+create unique index if not exists entries_google_sub_idx
+  on entries (google_sub)
+  where google_sub is not null;
 
 -- 2. Create follows table for the social graph
 create table if not exists follows (
@@ -18,13 +24,16 @@ create table if not exists follows (
 -- 3. Drop existing signatures of create_entry
 drop function if exists create_entry(text, jsonb, jsonb);
 drop function if exists create_entry(text, text, jsonb, jsonb);
+drop function if exists create_entry(text, text, jsonb, jsonb, text, text);
 
--- 4. Recreate create_entry function with password hashing support
+-- 4. Recreate create_entry function with password + Google account support
 create or replace function create_entry(
   p_username      text,
   p_password_hash text,
   p_predictions   jsonb,
-  p_advancers     jsonb
+  p_advancers     jsonb,
+  p_google_sub    text default null,
+  p_google_email  text default null
 ) returns jsonb
 language plpgsql
 as $$
@@ -35,8 +44,14 @@ declare
   v_pred_count  int;
   v_late_count  int;
 begin
-  insert into entries (username, password_hash)
-  values (p_username, p_password_hash)
+  insert into entries (username, password_hash, google_sub, google_email, google_linked_at)
+  values (
+    p_username,
+    p_password_hash,
+    nullif(p_google_sub, ''),
+    nullif(p_google_email, ''),
+    case when nullif(p_google_sub, '') is not null then now() else null end
+  )
   returning id, created_at into v_entry_id, v_uploaded_at;
 
   -- 72 group predictions, joined to matches by match_no

@@ -50,6 +50,9 @@ create table if not exists entries (
   id            serial primary key,
   username      text not null,
   password_hash text,
+  google_sub    text,
+  google_email  text,
+  google_linked_at timestamptz,
   created_at    timestamptz not null default now()
 );
 create unique index if not exists entries_username_lower_idx
@@ -57,6 +60,13 @@ create unique index if not exists entries_username_lower_idx
 
 alter table entries
   add column if not exists password_hash text;
+alter table entries
+  add column if not exists google_sub text,
+  add column if not exists google_email text,
+  add column if not exists google_linked_at timestamptz;
+create unique index if not exists entries_google_sub_idx
+  on entries (google_sub)
+  where google_sub is not null;
 
 
 -- -----------------------------------------------------------------------------
@@ -225,7 +235,37 @@ on conflict (key) do update set value = excluded.value;
 -- LEFT JOINs from `entries` keep brand-new entries on the board with zeros; an
 -- empty `entries` table yields zero rows.
 -- -----------------------------------------------------------------------------
-create or replace view leaderboard as
+-- Scoring is parameterized by an optional group-match cutoff so the global
+-- board and per-league boards share ONE implementation. compute_leaderboard()
+-- holds the model; the `leaderboard` view calls it with no cutoff (every entry,
+-- whole tournament) and league_leaderboard() calls it with a league's start
+-- game. When p_cutoff_kickoff is non-null, dimension-A group-match points only
+-- count matches whose chronological key (kickoff_at, match_no) is at/after the
+-- cutoff, and a group's standings (dimension B) only score if ALL 6 of its
+-- matches are at/after the cutoff. Knockout + champion (C/D) are never gated —
+-- they always follow the group stage.
+drop view if exists leaderboard;
+drop function if exists league_leaderboard(int);
+drop function if exists compute_leaderboard(timestamptz, int);
+create or replace function compute_leaderboard(
+  p_cutoff_kickoff  timestamptz default null,
+  p_cutoff_match_no int         default null
+)
+returns table (
+  entry_id         int,
+  username         text,
+  champion_pick    text,
+  group_points     int,
+  ranking_points   int,
+  knockout_points  int,
+  total            int,
+  exact_count      int,
+  champion_correct int,
+  created_at       timestamptz
+)
+language sql
+stable
+as $$
 with
 -- Single-row pivot of the tunable group/ranking weights (defaults if a row is
 -- somehow missing). Cross-joined into the final select, so weights apply in one
@@ -274,7 +314,15 @@ group_raw as (
                       then 1 else 0 end), 0) as n_exact
   from entries e
   left join predictions p on p.entry_id = e.id
-  left join matches m     on m.id = p.match_id
+  -- Apply the group-match cutoff here: matches before the league's start game
+  -- are filtered out, so they left-join to NULL and the `home_goals is not null`
+  -- guards above score them as 0. With no cutoff every match passes through.
+  left join (
+    select * from matches mm
+    where p_cutoff_kickoff is null
+       or (coalesce(mm.kickoff_at, 'infinity'::timestamptz), mm.match_no)
+          >= (p_cutoff_kickoff, p_cutoff_match_no)
+  ) m on m.id = p.match_id
   group by e.id
 ),
 
@@ -285,6 +333,12 @@ complete_groups as (
   from matches m
   join team_groups tg on tg.team = m.home_team
   where m.home_goals is not null and m.away_goals is not null
+    -- Under a cutoff, a group only counts if ALL 6 of its games are at/after it
+    -- (a group has exactly 6 matches, so requiring count(*) = 6 over the
+    -- cutoff-filtered set enforces "the whole group started after the cutoff").
+    and (p_cutoff_kickoff is null
+         or (coalesce(m.kickoff_at, 'infinity'::timestamptz), m.match_no)
+            >= (p_cutoff_kickoff, p_cutoff_match_no))
   group by tg.group_letter
   having count(*) = 6
 ),
@@ -418,8 +472,15 @@ select
   exact_count,
   champion_correct,
   created_at
-from scored
-order by total desc, exact_count desc, champion_correct desc, created_at asc;
+from scored;
+$$;
+
+
+-- The global leaderboard: the same scoring with no cutoff, every entry. Kept as
+-- a view so existing `.from("leaderboard")` queries are unchanged.
+create or replace view leaderboard as
+  select * from compute_leaderboard(null, null)
+  order by total desc, exact_count desc, champion_correct desc, created_at asc;
 
 
 -- =============================================================================
@@ -442,12 +503,15 @@ order by total desc, exact_count desc, champion_correct desc, created_at asc;
 -- -----------------------------------------------------------------------------
 drop function if exists create_entry(text, jsonb, jsonb);
 drop function if exists create_entry(text, text, jsonb, jsonb);
+drop function if exists create_entry(text, text, jsonb, jsonb, text, text);
 
 create or replace function create_entry(
   p_username      text,
   p_password_hash text,
   p_predictions   jsonb,
-  p_advancers     jsonb
+  p_advancers     jsonb,
+  p_google_sub    text default null,
+  p_google_email  text default null
 ) returns jsonb
 language plpgsql
 as $$
@@ -458,8 +522,14 @@ declare
   v_pred_count int;
   v_late_count int;
 begin
-  insert into entries (username, password_hash)
-  values (p_username, p_password_hash)
+  insert into entries (username, password_hash, google_sub, google_email, google_linked_at)
+  values (
+    p_username,
+    p_password_hash,
+    nullif(p_google_sub, ''),
+    nullif(p_google_email, ''),
+    case when nullif(p_google_sub, '') is not null then now() else null end
+  )
   returning id, created_at into v_entry_id, v_uploaded_at;
 
   -- 72 group predictions, joined to matches by match_no.
@@ -560,4 +630,97 @@ begin
   insert into actual_advancers (round, team, logged_at)
   values ('CHAMPION', p_advancers->>'CHAMPION', now());
 end;
+$$;
+
+
+-- =============================================================================
+-- Leagues — private/public mini-competitions over a subset of entries.
+-- =============================================================================
+-- A league is just a named group of entries. Its leaderboard is the shared
+-- scoring (compute_leaderboard) restricted to active members and the league's
+-- optional start game — weights stay global. Access is server-only (no RLS),
+-- same as every other table here.
+--
+--   visibility  'public'  → listed in the directory and self-joinable
+--               'private' → not listed; reachable only via its join_code link
+--   join_policy 'open'    → joining (directory or code) makes you active at once
+--               'approval'→ joining creates a 'pending' request the owner OKs
+--   start_match_id NULL   → score the whole tournament (like the global board)
+--                  set     → group-match points only count from that game onward
+--                            (chronologically); knockouts always count. Chosen
+--                            once at creation, immutable.
+-- Public leagues are forced to join_policy='open' by the create route, so the
+-- directory always means one-click join.
+-- -----------------------------------------------------------------------------
+create table if not exists leagues (
+  id          serial primary key,
+  name        text not null,
+  slug        text unique not null,            -- URL key: slug(name) + random suffix
+  visibility  text not null default 'private'
+              check (visibility in ('public', 'private')),
+  join_policy text not null default 'approval'
+              check (join_policy in ('open', 'approval')),
+  join_code   text unique not null,            -- shareable link token (public & private)
+  owner_id    int  not null references entries(id) on delete cascade,
+  start_match_id int references matches(id),    -- NULL = whole tournament
+  created_at  timestamptz not null default now(),
+  constraint leagues_name_len check (char_length(name) between 1 and 60)
+);
+
+alter table leagues
+  add column if not exists start_match_id int references matches(id);
+
+
+-- -----------------------------------------------------------------------------
+-- league_members — membership of an entry in a league.
+--   role   'owner' | 'member'   (the creator is the sole owner)
+--   status 'active' | 'pending' (pending = awaiting owner approval)
+-- The owner is also stored here as an active 'owner' row so member/board
+-- queries are uniform; leagues.owner_id remains the authoritative owner.
+-- -----------------------------------------------------------------------------
+create table if not exists league_members (
+  league_id int  not null references leagues(id)  on delete cascade,
+  entry_id  int  not null references entries(id)  on delete cascade,
+  role      text not null default 'member' check (role in ('owner', 'member')),
+  status    text not null default 'active'  check (status in ('active', 'pending')),
+  joined_at timestamptz not null default now(),
+  primary key (league_id, entry_id)
+);
+create index if not exists league_members_entry_idx on league_members (entry_id);
+
+
+-- -----------------------------------------------------------------------------
+-- league_leaderboard() — a league's board: the shared scoring restricted to the
+-- league's active members and computed from the league's start game onward.
+-- When start_match_id is NULL the left join yields NULLs, so compute_leaderboard
+-- runs with no cutoff (whole tournament). Called via RPC from the league page.
+-- -----------------------------------------------------------------------------
+drop function if exists league_leaderboard(int);
+create or replace function league_leaderboard(p_league_id int)
+returns table (
+  entry_id         int,
+  username         text,
+  champion_pick    text,
+  group_points     int,
+  ranking_points   int,
+  knockout_points  int,
+  total            int,
+  exact_count      int,
+  champion_correct int,
+  created_at       timestamptz
+)
+language sql
+stable
+as $$
+  select cl.*
+  from leagues l
+  left join matches sm on sm.id = l.start_match_id
+  cross join lateral compute_leaderboard(sm.kickoff_at, sm.match_no) cl
+  join league_members lm
+    on lm.entry_id = cl.entry_id
+   and lm.league_id = l.id
+   and lm.status = 'active'
+  where l.id = p_league_id
+  order by cl.total desc, cl.exact_count desc, cl.champion_correct desc,
+           cl.created_at asc;
 $$;

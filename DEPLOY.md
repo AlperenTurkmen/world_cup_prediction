@@ -50,7 +50,22 @@ From **Project Settings → API**:
 | Var | How to set it |
 |-----|---------------|
 | `ADMIN_PASSWORD` | Any strong password — this is what you type at `/admin`. |
-| `AUTH_SECRET` | A random string that signs the admin cookie. Generate with: `openssl rand -hex 32` |
+| `AUTH_SECRET` | A random string that signs admin/player/Google-link cookies. Generate with: `openssl rand -hex 32` |
+| `GOOGLE_CLIENT_ID` | Google OAuth client id for player sign-in. |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret for the server-side token exchange. |
+
+### Configure Google OAuth
+
+In Google Cloud Console, create an OAuth client for a web application and add
+these authorized redirect URIs:
+
+```text
+http://localhost:3000/api/auth/google/callback
+https://<your-vercel-domain>/api/auth/google/callback
+```
+
+Use the generated client id and client secret as `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET`.
 
 ---
 
@@ -92,12 +107,14 @@ select match_no, home_team, away_team from matches order by match_no limit 3;
 1. **Add New… → Project**, import the GitHub repo.
 2. Framework preset auto-detects **Next.js**. Leave build settings default
    (`next build`).
-3. **Environment Variables** — add all four (for Production, and Preview if you
+3. **Environment Variables** — add all six (for Production, and Preview if you
    want PR previews to work):
    - `SUPABASE_URL`
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `ADMIN_PASSWORD`
    - `AUTH_SECRET`
+   - `GOOGLE_CLIENT_ID`
+   - `GOOGLE_CLIENT_SECRET`
 4. **Deploy**. You'll get a URL like `https://world-cup-prediction.vercel.app`.
 
 ### Via the CLI (alternative)
@@ -109,6 +126,8 @@ vercel env add SUPABASE_URL production
 vercel env add SUPABASE_SERVICE_ROLE_KEY production
 vercel env add ADMIN_PASSWORD production
 vercel env add AUTH_SECRET production
+vercel env add GOOGLE_CLIENT_ID production
+vercel env add GOOGLE_CLIENT_SECRET production
 vercel --prod          # build & deploy
 ```
 

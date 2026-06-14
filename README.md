@@ -39,7 +39,7 @@ Client Component.**
 
 ```bash
 npm install
-cp .env.example .env.local   # fill in the four env vars (see below)
+cp .env.example .env.local   # fill in the env vars (see below)
 npm run dev
 ```
 
@@ -88,7 +88,18 @@ The leaderboard reflects all of these live on the next page load.
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service-role key — **server only**, never shipped to the client |
 | `ADMIN_PASSWORD` | Password for the `/admin` results-entry page |
-| `AUTH_SECRET` | Random string used to sign the admin cookie (`openssl rand -hex 32`) |
+| `AUTH_SECRET` | Random string used to sign admin/player/Google-link cookies (`openssl rand -hex 32`) |
+| `GOOGLE_CLIENT_ID` | Google OAuth client id for player sign-in |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret for server-side code exchange |
+
+Google Cloud redirect URIs:
+
+- Local: `http://localhost:3000/api/auth/google/callback`
+- Production: `https://<your-vercel-domain>/api/auth/google/callback`
+
+Google accounts are linked to prediction entries by the stable Google subject id
+and email. Supabase still stays server-only; Google OAuth routes set the same
+signed `wc_player` cookie used by the existing username/password login.
 
 ## Database
 

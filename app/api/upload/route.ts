@@ -1,18 +1,21 @@
 /**
  * POST /api/upload — accept a filled WCup_2026 workbook and store one entry.
  *
- * Multipart body: `username` (text) + `file` (.xlsx). The file is parsed
- * server-side with lib/parseWorkbook.ts, then the entry, its 72 group
- * predictions, and all advancement picks are inserted atomically via the
- * `create_entry` Postgres function. One upload per username (case-insensitive);
- * duplicates and malformed files are rejected with readable messages.
+ * Requires a pending Google identity cookie from the OAuth flow. Multipart body:
+ * `username` (text), optional `password`, and `file` (.xlsx). The file is
+ * parsed server-side with lib/parseWorkbook.ts, then the entry, its 72 group
+ * predictions, all advancement picks, and the Google account link are inserted
+ * atomically via the `create_entry` Postgres function. One upload per username
+ * (case-insensitive); duplicates and malformed files are rejected with readable
+ * messages.
  *
  * Supabase is touched only here on the server — never from the client.
  */
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { parseWorkbook, WorkbookParseError } from "@/lib/parseWorkbook";
-import { hashPassword, setPlayerSession } from "@/lib/playerAuth";
+import { clearGoogleIdentity, getPendingGoogleIdentity } from "@/lib/googleAuth";
+import { getCurrentPlayer, hashPassword, setPlayerSession } from "@/lib/playerAuth";
 
 // xlsx parsing needs the Node runtime (not edge).
 export const runtime = "nodejs";
@@ -30,6 +33,18 @@ function badRequest(message: string, status = 400) {
 }
 
 export async function POST(req: Request) {
+  const [player, googleIdentity] = await Promise.all([
+    getCurrentPlayer(),
+    getPendingGoogleIdentity(),
+  ]);
+
+  if (player) {
+    return badRequest("You are already signed in to an entry. Each person uploads once.", 409);
+  }
+  if (!googleIdentity) {
+    return badRequest("Please continue with Google before uploading predictions.", 401);
+  }
+
   let form: FormData;
   try {
     form = await req.formData();
@@ -50,10 +65,11 @@ export async function POST(req: Request) {
     return badRequest(`Username must be ${MAX_USERNAME_LEN} characters or fewer.`);
   }
 
-  // --- Validate password ---
+  // --- Validate optional password fallback ---
   const rawPassword = form.get("password");
-  if (typeof rawPassword !== "string" || rawPassword.length < 6) {
-    return badRequest("Password must be at least 6 characters.");
+  const password = typeof rawPassword === "string" ? rawPassword : "";
+  if (password.length > 0 && password.length < 6) {
+    return badRequest("Password must be at least 6 characters, or leave it blank to use Google only.");
   }
 
   // --- Validate file ---
@@ -85,8 +101,7 @@ export async function POST(req: Request) {
   }));
   const advancers = parsed.advancers; // { R32, R16, QF, SF, FINAL, CHAMPION }
 
-  // Hash the password
-  const hashedPassword = hashPassword(rawPassword);
+  const hashedPassword = password.length > 0 ? hashPassword(password) : null;
 
   // --- Atomic insert via RPC ---
   let data: CreateEntryResult | null;
@@ -96,6 +111,8 @@ export async function POST(req: Request) {
       p_password_hash: hashedPassword,
       p_predictions: predictions,
       p_advancers: advancers,
+      p_google_sub: googleIdentity.sub,
+      p_google_email: googleIdentity.email,
     });
     if (res.error) {
       if (res.error.code === "23505") {
@@ -123,6 +140,7 @@ export async function POST(req: Request) {
   // Auto-login the user by setting the cookie
   if (data?.entry_id) {
     await setPlayerSession(data.entry_id, username);
+    await clearGoogleIdentity();
   }
 
   return NextResponse.json({

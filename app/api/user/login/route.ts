@@ -31,7 +31,7 @@ export async function POST(req: Request) {
     // Verify password (older entries might not have a password, we must check if password_hash is set)
     if (!entry.password_hash) {
       return NextResponse.json(
-        { ok: false, error: "This entry does not have a password configured. Please contact the administrator." },
+        { ok: false, error: "This entry does not have a password configured. Please use Google sign-in." },
         { status: 401 }
       );
     }

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "tsx --test lib/parseWorkbook.test.ts",
+    "test": "tsx --test lib/*.test.ts",
     "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {

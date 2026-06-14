@@ -40,38 +40,43 @@ export async function GET(req: Request) {
     }
 
     const followedIds = follows?.map((f) => f.followed_id) || [];
-    if (followedIds.length === 0) {
-      return NextResponse.json({ ok: true, predictions: [] });
-    }
 
-    // 2. Fetch predictions for this match by followed users
-    const { data: preds, error: predsErr } = await supabase
-      .from("predictions")
-      .select(`
-        pred_home,
-        pred_away,
-        entries (
-          username
-        )
-      `)
-      .eq("match_id", matchId)
-      .in("entry_id", followedIds);
+    // 2. Fetch current user's own prediction + followed users' predictions in parallel
+    const [myPredRes, predsRes] = await Promise.all([
+      supabase
+        .from("predictions")
+        .select("pred_home, pred_away")
+        .eq("match_id", matchId)
+        .eq("entry_id", player.id)
+        .maybeSingle(),
+      followedIds.length > 0
+        ? supabase
+            .from("predictions")
+            .select("pred_home, pred_away, entries ( username )")
+            .eq("match_id", matchId)
+            .in("entry_id", followedIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
 
-    if (predsErr) {
-      console.error("Error fetching followed predictions:", predsErr);
+    if (predsRes.error) {
+      console.error("Error fetching followed predictions:", predsRes.error);
       return NextResponse.json(
         { ok: false, error: "Could not fetch predictions." },
         { status: 500 }
       );
     }
 
-    const results = (preds || []).map((p: any) => ({
+    const myPrediction = myPredRes.data
+      ? { username: player.username, predHome: myPredRes.data.pred_home, predAway: myPredRes.data.pred_away }
+      : null;
+
+    const friendPredictions = (predsRes.data || []).map((p: any) => ({
       username: p.entries?.username || "Unknown",
       predHome: p.pred_home,
       predAway: p.pred_away,
     }));
 
-    return NextResponse.json({ ok: true, predictions: results });
+    return NextResponse.json({ ok: true, myPrediction, friendPredictions });
   } catch (err) {
     console.error("Followed predictions API threw:", err);
     return NextResponse.json(

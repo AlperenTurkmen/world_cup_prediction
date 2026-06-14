@@ -19,6 +19,9 @@ export default async function Header() {
           <Link href="/upload" className="font-medium opacity-80 hover:opacity-100">
             Upload
           </Link>
+          <Link href="/leagues" className="font-medium opacity-80 hover:opacity-100">
+            Leagues
+          </Link>
           <PlayerNav player={player} />
         </div>
       </nav>
