@@ -56,7 +56,39 @@ function serialToIso(serial: unknown): string | null {
   return iso;
 }
 
-function readGroupFixtures(): Fixture[] {
+interface TeamGroup {
+  team: string;
+  group_letter: string;
+}
+
+/**
+ * Read the 48 team → group (A..L) assignments from the `Groups` sheet.
+ * Slots live in column B as `A1`..`L4`; the team name is in column D. The
+ * group letter is the slot's first character. These feed the group-ranking
+ * dimension of the leaderboard (see docs/SCORING_DESIGN.md). Team names are the
+ * same canonical strings as the `Matches` sheet, so they match `matches`.
+ */
+function readTeamGroups(wb: XLSX.WorkBook): TeamGroup[] {
+  const ws = wb.Sheets["Groups"];
+  if (!ws) throw new Error('Master workbook is missing the "Groups" sheet.');
+  const get = (r: number, c: number): unknown => {
+    const cell = ws[XLSX.utils.encode_cell({ r, c })];
+    return cell ? cell.v : undefined;
+  };
+  const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
+
+  const rows: TeamGroup[] = [];
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    const slot = get(r, 1); // B = group slot, e.g. "A1"
+    const name = get(r, 3); // D = team name
+    if (typeof slot === "string" && /^[A-L][1-4]$/.test(slot) && name != null) {
+      rows.push({ team: String(name).trim(), group_letter: slot[0] });
+    }
+  }
+  return rows;
+}
+
+function readGroupFixtures(): { fixtures: Fixture[]; teamGroups: TeamGroup[] } {
   const url = new URL("../WCup_2026_4.2.7_en.xlsx", import.meta.url);
   const wb = XLSX.read(readFileSync(url), { type: "array" });
   const ws = wb.Sheets["Matches"];
@@ -85,7 +117,7 @@ function readGroupFixtures(): Fixture[] {
     });
   }
   fixtures.sort((a, b) => a.match_no - b.match_no);
-  return fixtures;
+  return { fixtures, teamGroups: readTeamGroups(wb) };
 }
 
 async function main(): Promise<void> {
@@ -98,9 +130,12 @@ async function main(): Promise<void> {
     );
   }
 
-  const fixtures = readGroupFixtures();
+  const { fixtures, teamGroups } = readGroupFixtures();
   if (fixtures.length !== 72) {
     throw new Error(`Expected 72 group fixtures, found ${fixtures.length}. Aborting.`);
+  }
+  if (teamGroups.length !== 48) {
+    throw new Error(`Expected 48 team→group rows, found ${teamGroups.length}. Aborting.`);
   }
 
   const supabase = createClient(url, key, {
@@ -109,11 +144,20 @@ async function main(): Promise<void> {
 
   const { error } = await supabase.from("matches").upsert(fixtures, { onConflict: "match_no" });
   if (error) {
-    throw new Error(`Upsert failed: ${error.message}`);
+    throw new Error(`Upsert into "matches" failed: ${error.message}`);
+  }
+
+  const { error: tgError } = await supabase
+    .from("team_groups")
+    .upsert(teamGroups, { onConflict: "team" });
+  if (tgError) {
+    throw new Error(`Upsert into "team_groups" failed: ${tgError.message}`);
   }
 
   console.log(`Seeded ${fixtures.length} group fixtures into "matches".`);
   console.log(`  e.g. match 1: ${fixtures[0].home_team} vs ${fixtures[0].away_team}`);
+  console.log(`Seeded ${teamGroups.length} team→group rows into "team_groups".`);
+  console.log(`  e.g. ${teamGroups[0].team} → group ${teamGroups[0].group_letter}`);
 }
 
 main().catch((err) => {

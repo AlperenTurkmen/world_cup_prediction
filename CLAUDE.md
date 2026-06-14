@@ -26,10 +26,13 @@ Users upload a *filled* copy of the master workbook. Predictions are extracted b
 Build the canonical 48-team list from the `Matches` sheet (unique teams across matches 1–72, columns I/J). Every parsed prediction name, every admin-entered actual, and every advancer must validate against this list exactly (names like `Bosnia/Herzeg.`, `Rep. of Korea`, `IR Iran`, `Curaçao`). Mismatches must be rejected, not silently coerced.
 
 ### Scoring lives in SQL, computed live
-The `leaderboard` Postgres VIEW (PLAN §S5) computes everything on read — no precomputed scores:
-- Group (matches 1–72, only where both goals are non-null): exact score = 3, correct W/D/L result = 1 (compare `sign(pred_home-pred_away)` to `sign(home_goals-away_goals)`), else 0.
-- Knockout: **advancement only**, never by knockout scoreline. Per-round weights R32=1, R16=2, QF=4, SF=6, FINAL=8, CHAMPION=12, summed over the intersection of `advancement_predictions` and `actual_advancers`. Keep weights in one place.
-- Order: `total desc, exact_count desc, created_at asc` (tiebreak: total → exact group scorelines → earliest submission).
+The `leaderboard` Postgres VIEW computes everything on read — no precomputed scores. The full model is **`docs/SCORING_DESIGN.md`** (authoritative; supersedes PLAN §S3). Four dimensions, weights tunable in two tables only (`scoring_weights` for A/B, `round_weights` for C/D):
+- **A — Group match** (matches 1–72, both goals non-null): axes *stack*, not "best of" — `W_OUTCOME`(2) for correct W/D/L + `W_GOALDIFF`(1) for correct margin + `W_TEAMGOALS`(1) per team's exact goals (×0–2) + `W_EXACT`(3) for an exact scoreline. Max 8/match.
+- **B — Group ranking** (only once a group's 6 matches are all logged): each team's predicted vs actual final position, both *derived in SQL* from scorelines (pts → GD → GF → name); `W_RANK_EXACT`(3) exact, `W_RANK_ADJACENT`(1) off-by-one. No new prediction input — predicted standings = what the workbook's `CalcA`–`CalcL` show.
+- **C/D — Knockout + Champion**: **advancement only**, progressive. Per-round weights R32=1, R16=2, QF=4, SF=6, FINAL=8, CHAMPION=12 over the intersection of `advancement_predictions` and `actual_advancers`.
+- **Fairness gating** (must preserve): group match scores only if `is_score_eligible` and entry predates `result_logged_at`; a group's ranking scores only if all 6 of its predictions were eligible; an advancer scores only if logged after the entry (`created_at < logged_at`).
+- Order: `total desc, exact_count desc, champion_correct desc, created_at asc`.
+- Group ranking needs the `team_groups` table (team→A..L), seeded by `scripts/seed.ts` from the workbook's `Groups` sheet.
 
 ### Fixed product decisions (don't re-ask)
 One upload per username, immutable; usernames unique case-insensitive. Admin enters group scores + advancers via form, with an optional "upload master results workbook" shortcut that runs the *same* `parseWorkbook` to auto-populate both group actuals and advancers.

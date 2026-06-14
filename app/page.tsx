@@ -11,9 +11,11 @@ interface LeaderboardRow {
   username: string;
   champion_pick: string | null;
   group_points: number;
-  bonus_points: number;
+  ranking_points: number;
+  knockout_points: number;
   total: number;
   exact_count: number;
+  champion_correct: number;
   created_at: string;
 }
 
@@ -33,6 +35,7 @@ async function getLeaderboard(): Promise<LeaderboardData> {
         .select("*")
         .order("total", { ascending: false })
         .order("exact_count", { ascending: false })
+        .order("champion_correct", { ascending: false })
         .order("created_at", { ascending: true }),
       supabase
         .from("matches")
@@ -92,7 +95,8 @@ export default async function HomePage() {
                   <th className="py-2 pr-3 font-semibold">Champion pick</th>
                   <th className="py-2 pr-3 text-right font-semibold">Total</th>
                   <th className="hidden py-2 pr-3 text-right font-semibold tabular-nums sm:table-cell">Group</th>
-                  <th className="hidden py-2 pr-3 text-right font-semibold tabular-nums sm:table-cell">Bonus</th>
+                  <th className="hidden py-2 pr-3 text-right font-semibold tabular-nums sm:table-cell">Ranking</th>
+                  <th className="hidden py-2 pr-3 text-right font-semibold tabular-nums sm:table-cell">Knockout</th>
                   <th className="hidden py-2 text-right font-semibold tabular-nums sm:table-cell">Exact</th>
                 </tr>
               </thead>
@@ -107,7 +111,8 @@ export default async function HomePage() {
                     <td className="py-2 pr-3 opacity-80">{row.champion_pick ?? "—"}</td>
                     <td className="py-2 pr-3 text-right font-semibold tabular-nums">{row.total}</td>
                     <td className="hidden py-2 pr-3 text-right tabular-nums opacity-70 sm:table-cell">{row.group_points}</td>
-                    <td className="hidden py-2 pr-3 text-right tabular-nums opacity-70 sm:table-cell">{row.bonus_points}</td>
+                    <td className="hidden py-2 pr-3 text-right tabular-nums opacity-70 sm:table-cell">{row.ranking_points}</td>
+                    <td className="hidden py-2 pr-3 text-right tabular-nums opacity-70 sm:table-cell">{row.knockout_points}</td>
                     <td className="hidden py-2 text-right tabular-nums opacity-70 sm:table-cell">{row.exact_count}</td>
                   </tr>
                 ))}
