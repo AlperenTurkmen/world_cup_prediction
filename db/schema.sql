@@ -182,3 +182,64 @@ from entries e
 join group_scores gs on gs.entry_id = e.id
 join bonus_scores bs on bs.entry_id = e.id
 order by total desc, exact_count desc, created_at asc;
+
+
+-- =============================================================================
+-- create_entry() — atomic upload insert (used by POST /api/upload).
+-- =============================================================================
+-- Inserts one entry, its 72 group predictions, and all advancement_predictions
+-- in a single transaction. Either the whole submission lands or none of it does
+-- (no half-written entry on error). One upload per username is enforced by the
+-- case-insensitive unique index on entries.username — a duplicate raises a
+-- unique_violation (SQLSTATE 23505) that the route maps to a friendly message.
+--
+-- Parameters:
+--   p_username     text
+--   p_predictions  jsonb  [{ "match_no": int, "pred_home": int, "pred_away": int }, ...]
+--   p_advancers    jsonb  { "R32":[...], "R16":[...], "QF":[...], "SF":[...],
+--                           "FINAL":[...], "CHAMPION": "<team>" }
+-- Returns the new entry id.
+-- -----------------------------------------------------------------------------
+create or replace function create_entry(
+  p_username    text,
+  p_predictions jsonb,
+  p_advancers   jsonb
+) returns int
+language plpgsql
+as $$
+declare
+  v_entry_id   int;
+  v_round      text;
+  v_pred_count int;
+begin
+  insert into entries (username) values (p_username) returning id into v_entry_id;
+
+  -- 72 group predictions, joined to matches by match_no.
+  insert into predictions (entry_id, match_id, pred_home, pred_away)
+  select v_entry_id,
+         m.id,
+         (p->>'pred_home')::int,
+         (p->>'pred_away')::int
+  from jsonb_array_elements(p_predictions) as p
+  join matches m on m.match_no = (p->>'match_no')::int;
+
+  -- Guard: every prediction must have matched a seeded fixture.
+  select count(*) into v_pred_count from predictions where entry_id = v_entry_id;
+  if v_pred_count <> 72 then
+    raise exception 'expected 72 predictions but inserted % — is the matches table seeded?', v_pred_count;
+  end if;
+
+  -- Multi-team rounds.
+  foreach v_round in array array['R32','R16','QF','SF','FINAL'] loop
+    insert into advancement_predictions (entry_id, round, team)
+    select v_entry_id, v_round, t.team
+    from jsonb_array_elements_text(p_advancers->v_round) as t(team);
+  end loop;
+
+  -- Champion (single team).
+  insert into advancement_predictions (entry_id, round, team)
+  values (v_entry_id, 'CHAMPION', p_advancers->>'CHAMPION');
+
+  return v_entry_id;
+end;
+$$;

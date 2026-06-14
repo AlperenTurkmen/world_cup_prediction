@@ -8,7 +8,10 @@ leaderboard. It implements PLAN.md **§S4** (data model) and **§S3/§S5**
 
 | File         | Purpose                                                        |
 |--------------|----------------------------------------------------------------|
-| `schema.sql` | Single migration: 5 core tables + `round_weights` + `leaderboard` view. |
+| `schema.sql` | Single migration: 5 core tables + `round_weights` + `leaderboard` view + `create_entry()` function. |
+
+> Re-running `schema.sql` after a change is safe and is how you pick up new
+> objects (e.g. the `create_entry()` function added in Phase 3).
 
 ## How to run it
 
@@ -75,7 +78,16 @@ select * from round_weights order by weight;
 -- expect the 6 rows above
 ```
 
+## `create_entry()` — atomic uploads
+
+`POST /api/upload` calls the `create_entry(p_username, p_predictions, p_advancers)`
+function so that an entry, its 72 predictions, and all advancement picks insert
+in **one transaction** — there is never a half-written entry. A duplicate
+username raises a `unique_violation` (SQLSTATE `23505`) which the route turns
+into a friendly "already submitted" message. If the `matches` table is not yet
+seeded, the function raises and rolls back rather than saving a partial entry.
+
 ## What's next
 
 The 72 `matches` rows are **not** seeded by this migration — they are loaded by
-`scripts/seed.ts` from the master workbook in Phase 2 (parser + seed).
+`scripts/seed.ts` from the master workbook (Phase 2).

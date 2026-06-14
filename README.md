@@ -20,7 +20,7 @@ Client Component.**
 | 0     | Scaffold (Next.js app, routes, server-only Supabase client) | ✅ Done |
 | 1     | Database (schema + live `leaderboard` view) | ✅ Done — [`db/`](db/) |
 | 2     | Parser + seed (`lib/parseWorkbook.ts`, `scripts/seed.ts`) | ✅ Done — [`lib/`](lib/parseWorkbook.ts), [`scripts/`](scripts/seed.ts) |
-| 3     | Upload flow (`/upload` + `POST /api/upload`) | ⬜ |
+| 3     | Upload flow (`/upload` + `POST /api/upload`) | ✅ Done — [`app/upload`](app/upload/page.tsx), [`app/api/upload`](app/api/upload/route.ts) |
 | 4     | Leaderboard page (`/`) | ⬜ |
 | 5     | Admin results entry (`/admin`) | ⬜ |
 | 6     | Polish (mobile, error/empty states) | ⬜ |
