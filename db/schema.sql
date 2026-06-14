@@ -173,6 +173,7 @@ bonus_scores as (
 select
   e.id                                        as entry_id,
   e.username                                  as username,
+  champ.team                                  as champion_pick,
   gs.group_points                             as group_points,
   bs.bonus_points                             as bonus_points,
   gs.group_points + bs.bonus_points           as total,
@@ -181,6 +182,8 @@ select
 from entries e
 join group_scores gs on gs.entry_id = e.id
 join bonus_scores bs on bs.entry_id = e.id
+left join advancement_predictions champ
+       on champ.entry_id = e.id and champ.round = 'CHAMPION'
 order by total desc, exact_count desc, created_at asc;
 
 
