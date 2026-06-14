@@ -12,7 +12,7 @@ interface UploadSuccess {
 }
 
 interface UploadFormProps {
-  googleEmail: string;
+  googleEmail: string | null;
 }
 
 export default function UploadForm({ googleEmail }: UploadFormProps) {
@@ -23,7 +23,11 @@ export default function UploadForm({ googleEmail }: UploadFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<UploadSuccess | null>(null);
 
-  const canSubmit = username.trim().length > 0 && file !== null && status === "idle";
+  const canSubmit =
+    username.trim().length > 0 &&
+    file !== null &&
+    (googleEmail !== null || password.length >= 6) &&
+    status === "idle";
 
   async function handleSubmit() {
     if (!canSubmit || !file) return;
@@ -82,14 +86,39 @@ export default function UploadForm({ googleEmail }: UploadFormProps) {
   return (
     <main className="mx-auto max-w-2xl px-4 py-12">
       <h1 className="text-2xl font-bold">Upload your predictions</h1>
-      <p className="mt-2 text-sm opacity-70">
-        Signed in with Google as <strong>{googleEmail}</strong>. Fill in the WCup_2026
-        Excel workbook, <strong>open and save it once in Excel</strong> so the bracket
-        calculates, then upload it here. One entry per person.
-      </p>
+      {googleEmail ? (
+        <p className="mt-2 text-sm opacity-70">
+          Signed in with Google as <strong>{googleEmail}</strong>. Fill in the WCup_2026
+          Excel workbook, <strong>open and save it once in Excel</strong> so the bracket
+          calculates, then upload it here. One entry per person.
+        </p>
+      ) : (
+        <p className="mt-2 text-sm opacity-70">
+          Fill in the WCup_2026 Excel workbook, <strong>open and save it once in
+          Excel</strong> so the bracket calculates, then upload it here. You can register
+          with just a username and password, or continue with Google first if you prefer.
+        </p>
+      )}
       <Link href="/tutorial" className="mt-3 inline-block text-sm font-medium underline">
         Need the upload steps and scoring summary?
       </Link>
+
+      {!googleEmail && (
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <a
+            href="/api/auth/google/start?redirectTo=%2Fupload"
+            className="inline-flex justify-center rounded-md border border-black/15 px-5 py-2.5 text-sm font-medium transition-colors hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
+          >
+            Continue with Google
+          </a>
+          <Link
+            href="/login"
+            className="inline-flex justify-center rounded-md border border-black/15 px-5 py-2.5 text-sm font-medium transition-colors hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
+          >
+            Log in to an existing entry
+          </Link>
+        </div>
+      )}
 
       <div className="mt-4 rounded-md border border-black/10 bg-black/[0.02] p-3 text-sm dark:border-white/15 dark:bg-white/[0.03]">
         Need the spreadsheet?{" "}
@@ -130,18 +159,20 @@ export default function UploadForm({ googleEmail }: UploadFormProps) {
 
         <div>
           <label htmlFor="password" className="block text-sm font-medium">
-            Optional password fallback
+            {googleEmail ? "Optional password fallback" : "Choose a password"}
           </label>
           <input
             id="password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Leave blank to use Google only"
+            placeholder={googleEmail ? "Leave blank to use Google only" : "At least 6 characters"}
             className="mt-1 w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-black/40 dark:border-white/20 dark:focus:border-white/50"
           />
           <p className="mt-1 text-xs opacity-60">
-            If you set one, it must be at least 6 characters.
+            {googleEmail
+              ? "If you set one, it must be at least 6 characters."
+              : "Required for username/password registration."}
           </p>
         </div>
 

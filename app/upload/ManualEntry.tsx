@@ -8,6 +8,7 @@ import {
   PICKABLE_KO_MATCHES,
   type GroupFixture,
   type GroupScores,
+  type KnockoutScores,
 } from "@/lib/deriveBracket";
 import { MAX_GOALS, MAX_USERNAME_LEN } from "@/lib/manualEntry";
 
@@ -23,7 +24,7 @@ export interface ClientFixture {
 interface InitialDraft {
   username: string;
   groupScores: Record<string, { h: number; a: number }>;
-  koWinners: Record<string, string>;
+  koScores: Record<string, { h: number; a: number; pen?: string }>;
 }
 
 interface ManualEntryProps {
@@ -58,11 +59,7 @@ export default function ManualEntry({ googleEmail, fixtures, initialDraft }: Man
     for (const [k, v] of Object.entries(initialDraft?.groupScores ?? {})) m[Number(k)] = v;
     return m;
   });
-  const [winners, setWinners] = useState<WinnerMap>(() => {
-    const m: WinnerMap = {};
-    for (const [k, v] of Object.entries(initialDraft?.koWinners ?? {})) m[Number(k)] = v;
-    return m;
-  });
+  const [winners, setWinners] = useState<WinnerMap>({});
   const [username, setUsername] = useState(initialDraft?.username ?? "");
   const [password, setPassword] = useState("");
 
@@ -97,9 +94,36 @@ export default function ManualEntry({ googleEmail, fixtures, initialDraft }: Man
     return gs;
   }, [fixtures, scores]);
 
+  const koScores = useMemo<KnockoutScores>(() => {
+    const out: KnockoutScores = {};
+    for (let pass = 0; pass < PICKABLE_KO_MATCHES.length; pass++) {
+      let changed = false;
+      const { matchups } = deriveBracket(derivationFixtures, derivationScores, out);
+      for (const no of PICKABLE_KO_MATCHES) {
+        const winner = winners[no];
+        const matchup = matchups.get(no);
+        if (!winner || !matchup?.home || !matchup.away) continue;
+        const next =
+          winner === matchup.home
+            ? { home: 1, away: 0, penaltyWinner: null }
+            : winner === matchup.away
+              ? { home: 0, away: 1, penaltyWinner: null }
+              : null;
+        if (!next) continue;
+        const cur = out[no];
+        if (!cur || cur.home !== next.home || cur.away !== next.away) {
+          out[no] = next;
+          changed = true;
+        }
+      }
+      if (!changed) break;
+    }
+    return out;
+  }, [derivationFixtures, derivationScores, winners]);
+
   const bracket = useMemo(
-    () => deriveBracket(derivationFixtures, derivationScores, winners),
-    [derivationFixtures, derivationScores, winners],
+    () => deriveBracket(derivationFixtures, derivationScores, koScores),
+    [derivationFixtures, derivationScores, koScores],
   );
 
   // ---- Group score editing -------------------------------------------------
@@ -172,7 +196,8 @@ export default function ManualEntry({ googleEmail, fixtures, initialDraft }: Man
         let changed = true;
         while (changed) {
           changed = false;
-          const { matchups } = deriveBracket(derivationFixtures, derivationScores, next);
+          const nextScores: KnockoutScores = {};
+          const { matchups } = deriveBracket(derivationFixtures, derivationScores, nextScores);
           for (const no of PICKABLE_KO_MATCHES) {
             const w = next[no];
             if (!w) continue;
@@ -196,12 +221,12 @@ export default function ManualEntry({ googleEmail, fixtures, initialDraft }: Man
       try {
         const groupScores: Record<string, { h: number; a: number }> = {};
         for (const [k, v] of Object.entries(scores)) groupScores[k] = v;
-        const koWinners: Record<string, string> = {};
-        for (const [k, v] of Object.entries(winners)) koWinners[k] = v;
+        const draftKoScores: Record<string, { h: number; a: number; pen?: string }> = {};
+        for (const [k, v] of Object.entries(koScores)) draftKoScores[k] = { h: v.home, a: v.away };
         const res = await fetch("/api/draft", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username, groupScores, koWinners }),
+          body: JSON.stringify({ username, groupScores, koScores: draftKoScores }),
         });
         if (!res.ok) throw new Error("save failed");
         setSaveState("saved");
@@ -209,7 +234,7 @@ export default function ManualEntry({ googleEmail, fixtures, initialDraft }: Man
         setSaveState("error");
       }
     },
-    [scores, winners, username],
+    [scores, koScores, username],
   );
 
   // Debounced autosave so progress survives even without an explicit save.
@@ -233,12 +258,12 @@ export default function ManualEntry({ googleEmail, fixtures, initialDraft }: Man
     try {
       const groupScores: Record<string, { h: number; a: number }> = {};
       for (const [k, v] of Object.entries(scores)) groupScores[k] = v;
-      const koWinners: Record<string, string> = {};
-      for (const [k, v] of Object.entries(winners)) koWinners[k] = v;
+      const submitKoScores: Record<string, { h: number; a: number; pen?: string }> = {};
+      for (const [k, v] of Object.entries(koScores)) submitKoScores[k] = { h: v.home, a: v.away };
       const res = await fetch("/api/upload/manual", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: username.trim(), password, groupScores, koWinners }),
+        body: JSON.stringify({ username: username.trim(), password, groupScores, koScores: submitKoScores }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {

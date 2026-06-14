@@ -39,8 +39,29 @@ export interface Scoreline {
 /** Predicted group scores, keyed by match number (1..72). */
 export type GroupScores = Record<number, Scoreline>;
 
-/** Picked knockout winners, keyed by match number (73..104). */
-export type KnockoutWinners = Record<number, string>;
+/**
+ * A predicted knockout scoreline. `penaltyWinner` is consulted only when the
+ * regulation score is level (home === away): it names which of the two teams
+ * goes through on penalties.
+ */
+export interface KnockoutScore {
+  home: number;
+  away: number;
+  penaltyWinner?: string | null;
+}
+
+/** Predicted knockout scorelines, keyed by match number (73..104). */
+export type KnockoutScores = Record<number, KnockoutScore>;
+
+/** A resolved, storable knockout prediction: matchup + scoreline + advancer. */
+export interface DerivedKnockoutPrediction {
+  matchNo: number;
+  homeTeam: string;
+  awayTeam: string;
+  predHome: number;
+  predAway: number;
+  penaltyWinner: string | null; // set only on a level score
+}
 
 export interface Advancers {
   R32: string[];
@@ -186,73 +207,89 @@ export function resolveR32Slots(standings: Map<string, TeamStanding[]>): Map<str
 
 /**
  * Resolve a single slot spec to a team, given the R32 slot map and the winners
- * picked so far. Returns null when the feeding result hasn't been picked yet.
+ * derived so far. Returns null when the feeding result isn't known yet.
  */
 function resolveSlot(
   spec: string,
   r32Slots: Map<string, string>,
-  winners: KnockoutWinners,
+  winners: Map<number, string>,
   matchups: Map<number, KnockoutMatchup>,
 ): string | null {
   if (spec.startsWith("W")) {
-    return winners[Number(spec.slice(1))] ?? null;
+    return winners.get(Number(spec.slice(1))) ?? null;
   }
   if (spec.startsWith("RU")) {
     // Loser of the referenced match = the participant that isn't the winner.
     const ref = Number(spec.slice(2));
     const m = matchups.get(ref);
-    const win = winners[ref];
+    const win = winners.get(ref);
     if (!m || !win || !m.home || !m.away) return null;
     return m.home === win ? m.away : m.home;
   }
   return r32Slots.get(spec) ?? null;
 }
 
+/** Decide who advances from a knockout scoreline (penalty winner breaks a tie). */
+function decideWinner(home: string, away: string, score: KnockoutScore): string | null {
+  if (score.home > score.away) return home;
+  if (score.away > score.home) return away;
+  const pw = score.penaltyWinner;
+  return pw === home || pw === away ? pw : null; // level score needs a valid penalty pick
+}
+
 /**
- * Resolve every knockout matchup (73..104) given the standings-derived R32
- * slots and the winners picked so far. Earlier-round matchups resolve first,
- * so a later round's participants appear as picks are made.
+ * Resolve every knockout matchup (73..104) and the team that advances from each,
+ * from the standings-derived R32 slots and the predicted scorelines. Ascending
+ * order guarantees feeders (lower match numbers) resolve before their dependents.
  */
-export function resolveKnockoutMatchups(
+export function resolveKnockout(
   r32Slots: Map<string, string>,
-  winners: KnockoutWinners,
-): Map<number, KnockoutMatchup> {
+  koScores: KnockoutScores,
+): { matchups: Map<number, KnockoutMatchup>; winners: Map<number, string> } {
   const matchups = new Map<number, KnockoutMatchup>();
-  // Ascending order guarantees feeders (lower match numbers) resolve first.
+  const winners = new Map<number, string>();
   for (let no = 73; no <= 104; no++) {
     const def = KO_SLOT_DEFS[no];
     if (!def) continue;
     const home = resolveSlot(def.home, r32Slots, winners, matchups);
     const away = resolveSlot(def.away, r32Slots, winners, matchups);
     matchups.set(no, { matchNo: no, home, away });
+    const score = koScores[no];
+    if (home && away && score) {
+      const w = decideWinner(home, away, score);
+      if (w) winners.set(no, w);
+    }
   }
-  return matchups;
+  return { matchups, winners };
 }
 
 export interface DerivedBracket {
-  /** All knockout matchups, resolved as far as the current picks allow. */
+  /** All knockout matchups, resolved as far as the current scores allow. */
   matchups: Map<number, KnockoutMatchup>;
-  /** R32 slot → team, from standings (constant across KO picks). */
+  /** R32 slot → team, from standings (constant across KO scores). */
   r32Slots: Map<string, string>;
-  /** Advancers as far as derivable; rounds past the picked winners are partial. */
+  /** Advancers as far as derivable; rounds past the entered scores are partial. */
   advancers: Advancers;
-  /** True once every pickable knockout match has a valid winner. */
+  /** Storable per-match scorelines (only fully-resolved matches with a score). */
+  knockoutPredictions: DerivedKnockoutPrediction[];
+  /** True once every pickable knockout match has a valid, decisive scoreline. */
   complete: boolean;
 }
 
 /**
- * Full derivation: standings → R32 → resolve matchups with the picked winners →
- * advancement structure. `complete` is true only when all 31 knockout winners
- * are picked and valid (each winner is one of that match's two participants).
+ * Full derivation: standings → R32 → resolve matchups + winners from the entered
+ * scorelines → advancement structure + storable knockout predictions. `complete`
+ * is true only when all 31 knockout matches have a valid result (a decisive
+ * score, or a level score with a penalty winner that is one of the two teams).
  */
 export function deriveBracket(
   fixtures: GroupFixture[],
   scores: GroupScores,
-  winners: KnockoutWinners,
+  koScores: KnockoutScores,
 ): DerivedBracket {
   const standings = computeStandings(fixtures, scores);
   const r32Slots = resolveR32Slots(standings);
-  const matchups = resolveKnockoutMatchups(r32Slots, winners);
+  const { matchups, winners } = resolveKnockout(r32Slots, koScores);
 
   // R32 advancers = the 32 teams in matches 73..88 (the round's participants).
   const r32Teams: string[] = [];
@@ -264,16 +301,8 @@ export function deriveBracket(
 
   // For deeper rounds, the advancers are the winners of the previous round's
   // matches — i.e. the participants of this round's matches.
-  const winnersOf = (matchNos: number[]): string[] => {
-    const out: string[] = [];
-    for (const no of matchNos) {
-      const w = winners[no];
-      const m = matchups.get(no);
-      // Only count a winner that is actually one of the two participants.
-      if (w && m && (m.home === w || m.away === w)) out.push(w);
-    }
-    return out;
-  };
+  const winnersOf = (matchNos: number[]): string[] =>
+    matchNos.map((no) => winners.get(no)).filter((w): w is string => !!w);
 
   const advancers: Advancers = {
     R32: r32Teams,
@@ -281,14 +310,26 @@ export function deriveBracket(
     QF: winnersOf(KNOCKOUT_ROUNDS[1].matches),
     SF: winnersOf(KNOCKOUT_ROUNDS[2].matches),
     FINAL: winnersOf(KNOCKOUT_ROUNDS[3].matches),
-    CHAMPION: winnersOf(KNOCKOUT_ROUNDS[4].matches)[0] ?? "",
+    CHAMPION: winners.get(104) ?? "",
   };
 
-  const complete = PICKABLE_KO_MATCHES.every((no) => {
-    const w = winners[no];
+  // Storable scorelines for the pickable matches whose matchup + score are known.
+  const knockoutPredictions: DerivedKnockoutPrediction[] = [];
+  for (const no of PICKABLE_KO_MATCHES) {
     const m = matchups.get(no);
-    return !!w && !!m && (m.home === w || m.away === w);
-  });
+    const sc = koScores[no];
+    if (!m?.home || !m?.away || !sc) continue;
+    knockoutPredictions.push({
+      matchNo: no,
+      homeTeam: m.home,
+      awayTeam: m.away,
+      predHome: sc.home,
+      predAway: sc.away,
+      penaltyWinner: sc.home === sc.away ? winners.get(no) ?? null : null,
+    });
+  }
 
-  return { matchups, r32Slots, advancers, complete };
+  const complete = PICKABLE_KO_MATCHES.every((no) => winners.has(no));
+
+  return { matchups, r32Slots, advancers, knockoutPredictions, complete };
 }

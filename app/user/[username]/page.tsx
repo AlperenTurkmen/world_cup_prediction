@@ -21,7 +21,7 @@ export default async function UserProfilePage({ params }: UserPageProps) {
   // 1. Fetch user entry by username (case-insensitive)
   const { data: entry, error: entryErr } = await supabase
     .from("entries")
-    .select("id, username, created_at")
+    .select("id, username, created_at, username_changes_used")
     .ilike("username", decodedUsername)
     .eq("is_hidden", false)
     .single();
@@ -42,21 +42,25 @@ export default async function UserProfilePage({ params }: UserPageProps) {
   const rank = rankIndex !== -1 ? rankIndex + 1 : null;
   const stats = rankIndex !== -1 ? boardRows?.[rankIndex] : null;
 
-  // 3. Fetch followers
-  const { data: followersData } = await supabase
+  // 3. Fetch followers. `follows` has two FKs to `entries` (follower_id and
+  // followed_id), so the embed must name the constraint to disambiguate —
+  // otherwise PostgREST returns an error and the list comes back empty.
+  const { data: followersData, error: followersErr } = await supabase
     .from("follows")
-    .select("follower:entries(id, username, is_hidden)")
+    .select("follower:entries!follows_follower_id_fkey(id, username, is_hidden)")
     .eq("followed_id", entry.id);
+  if (followersErr) console.error("Error fetching followers:", followersErr);
 
   const followers = (followersData || [])
     .map((f: any) => f.follower)
     .filter((f: any) => f && !f.is_hidden);
 
-  // 4. Fetch following
-  const { data: followingData } = await supabase
+  // 4. Fetch following (same disambiguation, via the followed_id FK).
+  const { data: followingData, error: followingErr } = await supabase
     .from("follows")
-    .select("followed:entries(id, username, is_hidden)")
+    .select("followed:entries!follows_followed_id_fkey(id, username, is_hidden)")
     .eq("follower_id", entry.id);
+  if (followingErr) console.error("Error fetching following:", followingErr);
 
   const following = (followingData || [])
     .map((f: any) => f.followed)
@@ -95,20 +99,28 @@ export default async function UserProfilePage({ params }: UserPageProps) {
     .eq("entry_id", entry.id)
     .order("match_id", { ascending: true });
 
-  // Map predictions to a clean structure
-  const predictions = (predictionsData || []).map((p: any) => ({
-    predHome: p.pred_home,
-    predAway: p.pred_away,
-    isScoreEligible: p.is_score_eligible,
-    matchId: p.matches?.id,
-    matchNo: p.matches?.match_no,
-    homeTeam: p.matches?.home_team,
-    awayTeam: p.matches?.away_team,
-    kickoffAt: p.matches?.kickoff_at,
-    homeGoals: p.matches?.home_goals,
-    awayGoals: p.matches?.away_goals,
-    resultLoggedAt: p.matches?.result_logged_at,
-  }));
+  // Map predictions to a clean structure, ordered chronologically by kickoff
+  // (match_no follows the workbook's order, which is not chronological).
+  const predictions = (predictionsData || [])
+    .map((p: any) => ({
+      predHome: p.pred_home,
+      predAway: p.pred_away,
+      isScoreEligible: p.is_score_eligible,
+      matchId: p.matches?.id,
+      matchNo: p.matches?.match_no,
+      homeTeam: p.matches?.home_team,
+      awayTeam: p.matches?.away_team,
+      kickoffAt: p.matches?.kickoff_at,
+      homeGoals: p.matches?.home_goals,
+      awayGoals: p.matches?.away_goals,
+      resultLoggedAt: p.matches?.result_logged_at,
+    }))
+    .sort((a, b) => {
+      const ta = a.kickoffAt ? new Date(a.kickoffAt).getTime() : Number.POSITIVE_INFINITY;
+      const tb = b.kickoffAt ? new Date(b.kickoffAt).getTime() : Number.POSITIVE_INFINITY;
+      if (ta !== tb) return ta - tb;
+      return (a.matchNo ?? 0) - (b.matchNo ?? 0);
+    });
 
   // 7. Fetch knockout predictions
   const { data: knockPredictions } = await supabase
@@ -140,6 +152,7 @@ export default async function UserProfilePage({ params }: UserPageProps) {
       profileId={entry.id}
       username={entry.username}
       createdAt={entry.created_at}
+      usernameChangesUsed={entry.username_changes_used ?? 0}
       rank={rank}
       stats={stats}
       followers={followers}

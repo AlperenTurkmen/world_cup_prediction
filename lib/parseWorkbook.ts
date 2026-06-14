@@ -39,9 +39,27 @@ export interface Advancers {
   CHAMPION: string; // 1
 }
 
+/**
+ * A predicted knockout scoreline. `penaltyWinner` is set only when the
+ * regulation score is level (the match went to a shoot-out); it names the team
+ * that advanced. Covers matches 73–102 and 104 (the third-place playoff, 103,
+ * is excluded — it has no bearing on advancement and is left out so manual and
+ * upload entries score symmetrically).
+ */
+export interface KnockoutPrediction {
+  matchNo: number; // 73..102, 104
+  homeTeam: string;
+  awayTeam: string;
+  predHome: number;
+  predAway: number;
+  penaltyWinner: string | null;
+}
+
 export interface ParsedWorkbook {
   groupPredictions: GroupPrediction[];
   advancers: Advancers;
+  /** Knockout scorelines (best-effort; missing/blank cells are skipped). */
+  knockoutPredictions: KnockoutPrediction[];
   /** The canonical 48-team list, derived from the `Matches` sheet. */
   canonicalTeams: string[];
 }
@@ -246,6 +264,41 @@ function readGroupScore(value: unknown, matchNo: number, side: "home" | "away"):
   return value;
 }
 
+/** A non-negative integer cell value, or null if blank/invalid (lenient). */
+function readIntCell(value: unknown): number | null {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
+  return null;
+}
+
+/**
+ * Read a knockout match's regulation scoreline and, if it was level, the
+ * penalty shoot-out winner. Scores sit one row below the team cells (r+3) and
+ * penalties two rows below that (r+5), at the same columns as the teams. Returns
+ * null when the scoreline is blank or a draw has no resolvable shoot-out — those
+ * are skipped rather than rejected, so a file that parsed before still parses.
+ */
+function readKnockoutScore(
+  get: (r: number, c: number) => unknown,
+  anchor: Anchor,
+  round: Round,
+  team1: string,
+  team2: string,
+): { predHome: number; predAway: number; penaltyWinner: string | null } | null {
+  const t2Off = team2ColOffset(round);
+  const predHome = readIntCell(get(anchor.r + 3, anchor.c + 1));
+  const predAway = readIntCell(get(anchor.r + 3, anchor.c + t2Off));
+  if (predHome === null || predAway === null) return null;
+
+  let penaltyWinner: string | null = null;
+  if (predHome === predAway) {
+    const penHome = readIntCell(get(anchor.r + 5, anchor.c + 1));
+    const penAway = readIntCell(get(anchor.r + 5, anchor.c + t2Off));
+    if (penHome === null || penAway === null || penHome === penAway) return null;
+    penaltyWinner = penHome > penAway ? team1 : team2;
+  }
+  return { predHome, predAway, penaltyWinner };
+}
+
 /**
  * Parse a filled WCup_2026 workbook from an ArrayBuffer.
  * @throws WorkbookParseError with a user-facing message on any invalid input.
@@ -274,12 +327,28 @@ export function parseWorkbook(buffer: ArrayBuffer | Uint8Array): ParsedWorkbook 
 
   const groupPredictions: GroupPrediction[] = [];
   const advancers: Advancers = { R32: [], R16: [], QF: [], SF: [], FINAL: [], CHAMPION: "" };
+  const knockoutPredictions: KnockoutPrediction[] = [];
   const blankKnockout: number[] = [];
 
   for (let matchNo = 1; matchNo <= 104; matchNo++) {
     const candidates = anchors.get(matchNo) ?? [];
     const resolved = resolveMatch(matchNo, candidates, get, isCanon, blankKnockout);
     if (!resolved) continue; // blank knockout — collected for a single message below
+
+    // Knockout scorelines (matches 73–102 and 104; the third-place game is skipped).
+    if (resolved.round !== "GROUP" && resolved.round !== "THIRD") {
+      const sc = readKnockoutScore(get, resolved.anchor, resolved.round, resolved.team1, resolved.team2);
+      if (sc) {
+        knockoutPredictions.push({
+          matchNo,
+          homeTeam: resolved.team1,
+          awayTeam: resolved.team2,
+          predHome: sc.predHome,
+          predAway: sc.predAway,
+          penaltyWinner: sc.penaltyWinner,
+        });
+      }
+    }
 
     switch (resolved.round) {
       case "GROUP": {
@@ -354,5 +423,5 @@ export function parseWorkbook(buffer: ArrayBuffer | Uint8Array): ParsedWorkbook 
     throw new WorkbookParseError("Could not read the predicted champion from the workbook.");
   }
 
-  return { groupPredictions, advancers, canonicalTeams };
+  return { groupPredictions, advancers, knockoutPredictions, canonicalTeams };
 }

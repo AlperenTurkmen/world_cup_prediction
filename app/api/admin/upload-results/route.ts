@@ -51,11 +51,22 @@ export async function POST(req: Request) {
     home_goals: g.predHome,
     away_goals: g.predAway,
   }));
+  // In the master *results* file the knockout "predictions" are the actual
+  // scorelines; apply_master_results stores them in actual_knockout_matches.
+  const knockout = parsed.knockoutPredictions.map((k) => ({
+    match_no: k.matchNo,
+    home_team: k.homeTeam,
+    away_team: k.awayTeam,
+    pred_home: k.predHome,
+    pred_away: k.predAway,
+    penalty_winner: k.penaltyWinner,
+  }));
 
   try {
     const { error } = await getSupabaseAdmin().rpc("apply_master_results", {
       p_results: results,
       p_advancers: parsed.advancers,
+      p_knockout: knockout,
     });
     if (error) {
       console.error("apply_master_results failed:", error);

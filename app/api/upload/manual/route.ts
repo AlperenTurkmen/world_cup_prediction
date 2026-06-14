@@ -24,11 +24,11 @@ import {
   deriveBracket,
   type GroupFixture,
   type GroupScores,
-  type KnockoutWinners,
+  type KnockoutScores,
 } from "@/lib/deriveBracket";
 import {
   sanitizeGroupScores,
-  sanitizeKoWinners,
+  sanitizeKoScores,
   MAX_USERNAME_LEN,
 } from "@/lib/manualEntry";
 
@@ -72,7 +72,11 @@ export async function POST(req: Request) {
   }
 
   const groupScores = sanitizeGroupScores(raw.groupScores);
-  const koWinners = sanitizeKoWinners(raw.koWinners);
+  const koScores = sanitizeKoScores(raw.koScores);
+  const koScoresForDerive: KnockoutScores = {};
+  for (const [k, v] of Object.entries(koScores)) {
+    koScoresForDerive[Number(k)] = { home: v.h, away: v.a, penaltyWinner: v.pen ?? null };
+  }
 
   // --- Load fixtures + team→group from the seeded tables --------------------
   const supabase = getSupabaseAdmin();
@@ -138,16 +142,27 @@ export async function POST(req: Request) {
     );
   }
 
-  // --- Derive the advancement bracket --------------------------------------
-  const { advancers, complete } = deriveBracket(fixtures, scores, koWinners as KnockoutWinners);
+  // --- Derive the advancement bracket from the predicted scorelines ---------
+  const { advancers, complete, knockoutPredictions } = deriveBracket(fixtures, scores, koScoresForDerive);
   if (!complete) {
-    return badRequest("Please pick a winner for every knockout match through to the champion.");
+    return badRequest(
+      "Please enter a score for every knockout match (and pick the penalty winner for any draw) through to the final.",
+    );
   }
 
   const predictions = fixtures.map((f) => ({
     match_no: f.matchNo,
     pred_home: scores[f.matchNo].home,
     pred_away: scores[f.matchNo].away,
+  }));
+
+  const knockout = knockoutPredictions.map((k) => ({
+    match_no: k.matchNo,
+    home_team: k.homeTeam,
+    away_team: k.awayTeam,
+    pred_home: k.predHome,
+    pred_away: k.predAway,
+    penalty_winner: k.penaltyWinner,
   }));
 
   // --- Atomic insert via the shared RPC ------------------------------------
@@ -160,6 +175,7 @@ export async function POST(req: Request) {
       p_advancers: advancers,
       p_google_sub: identity.sub,
       p_google_email: identity.email,
+      p_knockout: knockout,
     });
     if (res.error) {
       if (res.error.code === "23505") {

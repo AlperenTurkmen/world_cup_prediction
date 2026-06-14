@@ -55,6 +55,9 @@ create table if not exists entries (
   google_linked_at timestamptz,
   is_hidden     boolean not null default false,
   hidden_at     timestamptz,
+  -- Players may rename themselves up to 3 times; this counts the renames used.
+  -- A case-only re-spelling of the current name does not consume a change.
+  username_changes_used int not null default 0,
   created_at    timestamptz not null default now()
 );
 create unique index if not exists entries_username_lower_idx
@@ -69,6 +72,8 @@ alter table entries
 alter table entries
   add column if not exists is_hidden boolean not null default false,
   add column if not exists hidden_at timestamptz;
+alter table entries
+  add column if not exists username_changes_used int not null default 0;
 create unique index if not exists entries_google_sub_idx
   on entries (google_sub)
   where google_sub is not null;
@@ -101,9 +106,13 @@ create table if not exists entry_drafts (
   google_email text,
   username     text,
   group_scores jsonb not null default '{}'::jsonb,
-  ko_winners   jsonb not null default '{}'::jsonb,
+  ko_winners   jsonb not null default '{}'::jsonb,  -- legacy (winner-only drafts)
+  ko_scores    jsonb not null default '{}'::jsonb,  -- { "<match_no>": { "h": int, "a": int, "pen": "<team>" } }
   updated_at   timestamptz not null default now()
 );
+
+alter table entry_drafts
+  add column if not exists ko_scores jsonb not null default '{}'::jsonb;
 
 
 -- -----------------------------------------------------------------------------
@@ -122,6 +131,31 @@ create table if not exists predictions (
 
 alter table predictions
   add column if not exists is_score_eligible boolean not null default true;
+
+
+-- -----------------------------------------------------------------------------
+-- 3b. knockout_predictions — a user's predicted scoreline for each knockout
+--     match (73–102 and 104; the third-place playoff 103 is not scored). Unlike
+--     group fixtures the two teams differ per entry (they come from each entry's
+--     own bracket), so the teams are stored alongside the score. penalty_winner
+--     is set only when the regulation score is level. is_score_eligible mirrors
+--     the group rule (false if the match had already kicked off / been logged at
+--     submit time). Scored like a group match, but only when the predicted
+--     matchup equals the actual one (see the leaderboard's KO-scoreline axis).
+-- -----------------------------------------------------------------------------
+create table if not exists knockout_predictions (
+  entry_id   int  not null references entries(id) on delete cascade,
+  match_no   int  not null,
+  home_team  text not null,
+  away_team  text not null,
+  pred_home  int  not null,
+  pred_away  int  not null,
+  penalty_winner text,
+  is_score_eligible boolean not null default true,
+  primary key (entry_id, match_no),
+  constraint knockout_predictions_match_range check (match_no between 73 and 104),
+  constraint knockout_predictions_scores_nonneg check (pred_home >= 0 and pred_away >= 0)
+);
 
 
 -- -----------------------------------------------------------------------------
@@ -154,6 +188,30 @@ create table if not exists actual_advancers (
 
 alter table actual_advancers
   add column if not exists logged_at timestamptz not null default now();
+
+
+-- -----------------------------------------------------------------------------
+-- 5b. actual_knockout_matches — admin-entered ground truth for knockout
+--     scorelines (73–102, 104). Teams are nullable until the matchup is known;
+--     kickoff_at is seeded from the workbook for prediction eligibility. A
+--     knockout_predictions row scores its scoreline only when its (home_team,
+--     away_team) equals this row's actual teams. penalty_winner records the
+--     shoot-out result on a level score.
+-- -----------------------------------------------------------------------------
+create table if not exists actual_knockout_matches (
+  match_no   int primary key,
+  home_team  text,
+  away_team  text,
+  home_goals int,
+  away_goals int,
+  penalty_winner text,
+  kickoff_at timestamptz,
+  result_logged_at timestamptz,
+  constraint actual_knockout_matches_range check (match_no between 73 and 104),
+  constraint actual_knockout_matches_goals_nonneg check (
+    (home_goals is null or home_goals >= 0) and (away_goals is null or away_goals >= 0)
+  )
+);
 
 
 -- -----------------------------------------------------------------------------
@@ -456,6 +514,49 @@ knockout_raw as (
   left join round_weights rw on rw.round = ap.round
   group by e.id
 ),
+-- ── Dimension E: knockout scorelines (scored exactly like a group match) ─────
+-- Same stacking axes/weights as dimension A, but a knockout scoreline only
+-- scores when the predicted matchup (home_team, away_team) equals the actual
+-- one — comparing scores across different matchups would be meaningless. Never
+-- gated by the league cutoff (knockouts always follow the group stage). The
+-- third-place game (103) is not stored, so it never scores.
+ko_score_raw as (
+  select e.id as entry_id,
+    coalesce(sum(case when akm.home_goals is not null and akm.away_goals is not null
+                       and kp.is_score_eligible is true
+                       and (akm.result_logged_at is null or e.created_at < akm.result_logged_at)
+                       and kp.home_team = akm.home_team and kp.away_team = akm.away_team
+                       and sign(kp.pred_home - kp.pred_away) = sign(akm.home_goals - akm.away_goals)
+                      then 1 else 0 end), 0) as n_ko_outcome,
+    coalesce(sum(case when akm.home_goals is not null and akm.away_goals is not null
+                       and kp.is_score_eligible is true
+                       and (akm.result_logged_at is null or e.created_at < akm.result_logged_at)
+                       and kp.home_team = akm.home_team and kp.away_team = akm.away_team
+                       and (kp.pred_home - kp.pred_away) = (akm.home_goals - akm.away_goals)
+                      then 1 else 0 end), 0) as n_ko_goaldiff,
+    coalesce(sum(case when akm.home_goals is not null and akm.away_goals is not null
+                       and kp.is_score_eligible is true
+                       and (akm.result_logged_at is null or e.created_at < akm.result_logged_at)
+                       and kp.home_team = akm.home_team and kp.away_team = akm.away_team
+                       and kp.pred_home = akm.home_goals
+                      then 1 else 0 end)
+           + sum(case when akm.home_goals is not null and akm.away_goals is not null
+                       and kp.is_score_eligible is true
+                       and (akm.result_logged_at is null or e.created_at < akm.result_logged_at)
+                       and kp.home_team = akm.home_team and kp.away_team = akm.away_team
+                       and kp.pred_away = akm.away_goals
+                      then 1 else 0 end), 0) as n_ko_teamgoals,
+    coalesce(sum(case when akm.home_goals is not null and akm.away_goals is not null
+                       and kp.is_score_eligible is true
+                       and (akm.result_logged_at is null or e.created_at < akm.result_logged_at)
+                       and kp.home_team = akm.home_team and kp.away_team = akm.away_team
+                       and kp.pred_home = akm.home_goals and kp.pred_away = akm.away_goals
+                      then 1 else 0 end), 0) as n_ko_exact
+  from visible_entries e
+  left join knockout_predictions kp on kp.entry_id = e.id
+  left join actual_knockout_matches akm on akm.match_no = kp.match_no
+  group by e.id
+),
 -- Champion pick (for display) and whether it was correct (a tiebreak metric),
 -- under the same "logged after submission" fairness gate as the bonus.
 champ as (
@@ -480,7 +581,11 @@ scored as (
       + gr.n_exact     * w.w_exact                        as group_points,
     rr.n_rank_exact * w.w_rank_exact
       + rr.n_rank_adjacent * w.w_rank_adjacent            as ranking_points,
-    kr.knockout_points                                    as knockout_points,
+    kr.knockout_points
+      + ko.n_ko_outcome   * w.w_outcome
+      + ko.n_ko_goaldiff  * w.w_goaldiff
+      + ko.n_ko_teamgoals * w.w_teamgoals
+      + ko.n_ko_exact     * w.w_exact                     as knockout_points,
     gr.n_exact                                            as exact_count,
     champ.champion_correct                                as champion_correct,
     e.created_at                                          as created_at
@@ -489,6 +594,7 @@ scored as (
   join group_raw    gr on gr.entry_id = e.id
   join ranking_raw  rr on rr.entry_id = e.id
   join knockout_raw kr on kr.entry_id = e.id
+  join ko_score_raw ko on ko.entry_id = e.id
   join champ           on champ.entry_id = e.id
 )
 select
@@ -534,6 +640,7 @@ create or replace view leaderboard as
 drop function if exists create_entry(text, jsonb, jsonb);
 drop function if exists create_entry(text, text, jsonb, jsonb);
 drop function if exists create_entry(text, text, jsonb, jsonb, text, text);
+drop function if exists create_entry(text, text, jsonb, jsonb, text, text, jsonb);
 
 create or replace function create_entry(
   p_username      text,
@@ -541,7 +648,8 @@ create or replace function create_entry(
   p_predictions   jsonb,
   p_advancers     jsonb,
   p_google_sub    text default null,
-  p_google_email  text default null
+  p_google_email  text default null,
+  p_knockout      jsonb default '[]'::jsonb
 ) returns jsonb
 language plpgsql
 as $$
@@ -593,6 +701,25 @@ begin
   insert into advancement_predictions (entry_id, round, team)
   values (v_entry_id, 'CHAMPION', p_advancers->>'CHAMPION');
 
+  -- Knockout scorelines (matches 73–102, 104). Eligibility mirrors the group
+  -- rule, judged against actual_knockout_matches kickoff/result if seeded.
+  insert into knockout_predictions
+    (entry_id, match_no, home_team, away_team, pred_home, pred_away, penalty_winner, is_score_eligible)
+  select v_entry_id,
+         (k->>'match_no')::int,
+         k->>'home_team',
+         k->>'away_team',
+         (k->>'pred_home')::int,
+         (k->>'pred_away')::int,
+         nullif(k->>'penalty_winner', ''),
+         not coalesce(
+           (akm.kickoff_at is not null and akm.kickoff_at <= v_uploaded_at)
+           or (akm.result_logged_at is not null)
+           or (akm.home_goals is not null and akm.away_goals is not null),
+           false)
+  from jsonb_array_elements(p_knockout) as k
+  left join actual_knockout_matches akm on akm.match_no = (k->>'match_no')::int;
+
   select count(*) into v_late_count
   from predictions
   where entry_id = v_entry_id and is_score_eligible is not true;
@@ -629,13 +756,20 @@ end;
 $$;
 
 -- apply_master_results() — one-shot import from the admin's filled master
--- workbook (POST /api/admin/upload-results). Updates all provided group scores
--- and replaces every round's actual_advancers, atomically.
+-- workbook (POST /api/admin/upload-results). Updates all provided group scores,
+-- replaces every round's actual_advancers, and upserts actual knockout
+-- scorelines, atomically.
 --   p_results    jsonb  [{ "match_no": int, "home_goals": int, "away_goals": int }, ...]
 --   p_advancers  jsonb  { "R32":[...], ..., "FINAL":[...], "CHAMPION": "<team>" }
+--   p_knockout   jsonb  [{ "match_no": int, "home_team": text, "away_team": text,
+--                          "pred_home": int, "pred_away": int, "penalty_winner": text|null }, ...]
+--                       (parseWorkbook's knockoutPredictions shape; here pred_* are the actuals)
+drop function if exists apply_master_results(jsonb, jsonb);
+drop function if exists apply_master_results(jsonb, jsonb, jsonb);
 create or replace function apply_master_results(
   p_results   jsonb,
-  p_advancers jsonb
+  p_advancers jsonb,
+  p_knockout  jsonb default '[]'::jsonb
 ) returns void
 language plpgsql
 as $$
@@ -659,6 +793,25 @@ begin
   end loop;
   insert into actual_advancers (round, team, logged_at)
   values ('CHAMPION', p_advancers->>'CHAMPION', now());
+
+  -- Actual knockout scorelines (matches 73–102, 104).
+  insert into actual_knockout_matches
+    (match_no, home_team, away_team, home_goals, away_goals, penalty_winner, result_logged_at)
+  select (k->>'match_no')::int,
+         k->>'home_team',
+         k->>'away_team',
+         (k->>'pred_home')::int,
+         (k->>'pred_away')::int,
+         nullif(k->>'penalty_winner', ''),
+         now()
+  from jsonb_array_elements(p_knockout) as k
+  on conflict (match_no) do update set
+    home_team = excluded.home_team,
+    away_team = excluded.away_team,
+    home_goals = excluded.home_goals,
+    away_goals = excluded.away_goals,
+    penalty_winner = excluded.penalty_winner,
+    result_logged_at = now();
 end;
 $$;
 

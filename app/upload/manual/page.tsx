@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getPendingGoogleIdentity } from "@/lib/googleAuth";
 import { getCurrentPlayer } from "@/lib/playerAuth";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { sanitizeGroupScores, sanitizeKoWinners } from "@/lib/manualEntry";
+import { sanitizeGroupScores, sanitizeKoScores } from "@/lib/manualEntry";
 import ManualEntry, { type ClientFixture } from "../ManualEntry";
 
 export const dynamic = "force-dynamic";
@@ -52,7 +52,7 @@ export default async function ManualEntryPage() {
     supabase.from("team_groups").select("team, group_letter"),
     supabase
       .from("entry_drafts")
-      .select("username, group_scores, ko_winners")
+      .select("username, group_scores, ko_scores")
       .eq("google_sub", googleIdentity.sub)
       .maybeSingle(),
   ]);
@@ -96,7 +96,7 @@ export default async function ManualEntryPage() {
     ? {
         username: draftRes.data.username ?? "",
         groupScores: sanitizeGroupScores(draftRes.data.group_scores),
-        koWinners: sanitizeKoWinners(draftRes.data.ko_winners),
+        koScores: sanitizeKoScores(draftRes.data.ko_scores),
       }
     : null;
 

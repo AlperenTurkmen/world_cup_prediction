@@ -14,13 +14,16 @@ export const MAX_USERNAME_LEN = 40;
 
 /** A partial group scoreline map: match_no (as string key) → { h, a }. */
 export type GroupScoresMap = Record<string, { h: number; a: number }>;
-/** A partial knockout winners map: match_no (as string key) → team name. */
-export type KoWinnersMap = Record<string, string>;
+/**
+ * A partial knockout scoreline map: match_no (as string key) → { h, a, pen? }.
+ * `pen` (the penalty-shoot-out winner team) is present only on a level score.
+ */
+export type KoScoresMap = Record<string, { h: number; a: number; pen?: string }>;
 
 export interface DraftPayload {
   username: string;
   groupScores: GroupScoresMap;
-  koWinners: KoWinnersMap;
+  koScores: KoScoresMap;
 }
 
 function isGoal(v: unknown): v is number {
@@ -43,14 +46,19 @@ export function sanitizeGroupScores(raw: unknown): GroupScoresMap {
 
 const PICKABLE = new Set(PICKABLE_KO_MATCHES);
 
-/** Keep only winner picks for real, pickable knockout matches. Drops the rest. */
-export function sanitizeKoWinners(raw: unknown): KoWinnersMap {
-  const out: KoWinnersMap = {};
+/** Keep only well-formed scorelines for real, pickable knockout matches. */
+export function sanitizeKoScores(raw: unknown): KoScoresMap {
+  const out: KoScoresMap = {};
   if (!raw || typeof raw !== "object") return out;
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     const matchNo = Number(key);
     if (!PICKABLE.has(matchNo)) continue;
-    if (typeof value === "string" && value.trim().length > 0) out[String(matchNo)] = value.trim();
+    if (!value || typeof value !== "object") continue;
+    const { h, a, pen } = value as { h?: unknown; a?: unknown; pen?: unknown };
+    if (!isGoal(h) || !isGoal(a)) continue;
+    const entry: { h: number; a: number; pen?: string } = { h, a };
+    if (typeof pen === "string" && pen.trim().length > 0) entry.pen = pen.trim();
+    out[String(matchNo)] = entry;
   }
   return out;
 }

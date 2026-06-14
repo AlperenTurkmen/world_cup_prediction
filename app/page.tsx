@@ -38,6 +38,7 @@ async function getPageData(): Promise<PageData> {
       supabase
         .from("matches")
         .select("id, match_no, home_team, away_team, kickoff_at, home_goals, away_goals")
+        .order("kickoff_at", { ascending: true, nullsFirst: false })
         .order("match_no", { ascending: true }),
     ]);
 

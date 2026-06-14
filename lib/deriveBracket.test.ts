@@ -25,7 +25,7 @@ import {
   KNOCKOUT_ROUNDS,
   type GroupFixture,
   type GroupScores,
-  type KnockoutWinners,
+  type KnockoutScores,
 } from "./deriveBracket";
 import { THIRD_SLOT_ORDER, THIRD_ASSIGNMENT } from "./bracketData";
 
@@ -111,27 +111,36 @@ test("assigns third-placed teams to the correct R32 slots (FIFA combination tabl
   }
 });
 
-test("a full set of picked winners yields a complete, well-nested bracket", () => {
+test("a full set of scored knockouts yields a complete, well-nested bracket", () => {
   const buf = loadWorkbook();
   const { fixtures, scores } = buildFixtures(buf);
 
-  // Deterministic synthetic picks: the alphabetically-first participant wins each
-  // tie. This exercises matchup propagation independently of the workbook's
-  // fair-play-influenced bracket.
-  const r32Slots = resolveR32Slots(computeStandings(fixtures, scores));
-  const winners: KnockoutWinners = {};
+  // Deterministic synthetic scores: the alphabetically-first participant wins each
+  // tie. Match 73 is forced to a draw resolved on penalties, exercising that path.
+  const koScores: KnockoutScores = {};
   for (const round of KNOCKOUT_ROUNDS) {
-    const { matchups } = deriveBracket(fixtures, scores, winners);
+    const { matchups } = deriveBracket(fixtures, scores, koScores);
     for (const no of round.matches) {
       const m = matchups.get(no)!;
       assert.ok(m.home && m.away, `match ${no} should be resolved`);
-      winners[no] = m.home! < m.away! ? m.home! : m.away!;
+      const winner = m.home! < m.away! ? m.home! : m.away!;
+      koScores[no] =
+        no === 73
+          ? { home: 1, away: 1, penaltyWinner: winner }
+          : winner === m.home
+            ? { home: 1, away: 0 }
+            : { home: 0, away: 1 };
     }
   }
-  void r32Slots;
 
-  const d = deriveBracket(fixtures, scores, winners);
+  const d = deriveBracket(fixtures, scores, koScores);
   assert.equal(d.complete, true);
+  assert.equal(d.knockoutPredictions.length, 31);
+
+  // The penalty-decided match stores its winner as penaltyWinner and advances it.
+  const m73 = d.knockoutPredictions.find((k) => k.matchNo === 73)!;
+  assert.equal(m73.penaltyWinner, koScores[73].penaltyWinner);
+  assert.ok(d.advancers.R16.includes(koScores[73].penaltyWinner!));
 
   const r32 = new Set(d.advancers.R32);
   const r16 = new Set(d.advancers.R16);

@@ -38,6 +38,43 @@ test("parses exactly 72 group predictions", () => {
   assert.equal(groupPredictions.length, 72);
 });
 
+test("parses knockout scorelines incl. penalty shoot-outs", () => {
+  const { knockoutPredictions, advancers } = parseWorkbook(buffer);
+  const byNo = new Map(knockoutPredictions.map((k) => [k.matchNo, k]));
+
+  // Every scored knockout match (73–102, 104) should be present; never 103.
+  assert.equal(knockoutPredictions.length, 31);
+  assert.ok(!byNo.has(103), "third-place playoff is excluded");
+
+  // R32: Spain 3–1 Argentina, and the Final: Spain 2–1 England (both decisive).
+  assert.deepEqual(
+    { h: byNo.get(84)?.predHome, a: byNo.get(84)?.predAway, p: byNo.get(84)?.penaltyWinner },
+    { h: 3, a: 1, p: null },
+  );
+  assert.deepEqual(
+    { h: byNo.get(104)?.predHome, a: byNo.get(104)?.predAway, p: byNo.get(104)?.penaltyWinner },
+    { h: 2, a: 1, p: null },
+  );
+
+  // The team a drawn knockout match advances on penalties must be one of its two
+  // teams AND the team that actually progressed in the workbook's bracket.
+  const nextRound = (no: number) =>
+    no <= 88 ? advancers.R16 : no <= 96 ? advancers.QF : no <= 100 ? advancers.SF
+      : no <= 102 ? advancers.FINAL : [advancers.CHAMPION];
+  let shootouts = 0;
+  for (const k of knockoutPredictions) {
+    if (k.predHome === k.predAway) {
+      shootouts++;
+      assert.ok(k.penaltyWinner, `match ${k.matchNo} draw needs a penalty winner`);
+      assert.ok([k.homeTeam, k.awayTeam].includes(k.penaltyWinner!), `match ${k.matchNo} pen winner is a participant`);
+      assert.ok(nextRound(k.matchNo).includes(k.penaltyWinner!), `match ${k.matchNo} pen winner advanced`);
+    } else {
+      assert.equal(k.penaltyWinner, null, `decisive match ${k.matchNo} has no penalty winner`);
+    }
+  }
+  assert.ok(shootouts > 0, "fixture should exercise at least one shoot-out");
+});
+
 test("group match numbers are 1..72 with no gaps or dupes", () => {
   const { groupPredictions } = parseWorkbook(buffer);
   const nos = groupPredictions.map((g) => g.matchNo).sort((a, b) => a - b);

@@ -88,7 +88,17 @@ function readTeamGroups(wb: XLSX.WorkBook): TeamGroup[] {
   return rows;
 }
 
-function readGroupFixtures(): { fixtures: Fixture[]; teamGroups: TeamGroup[] } {
+/** A knockout match's seeded kickoff (teams/scores are filled later by admin). */
+interface KnockoutKickoff {
+  match_no: number;
+  kickoff_at: string | null;
+}
+
+function readGroupFixtures(): {
+  fixtures: Fixture[];
+  teamGroups: TeamGroup[];
+  knockoutKickoffs: KnockoutKickoff[];
+} {
   const url = new URL("../WCup_2026_4.2.7_en.xlsx", import.meta.url);
   const wb = XLSX.read(readFileSync(url), { type: "array" });
   const ws = wb.Sheets["Matches"];
@@ -101,23 +111,30 @@ function readGroupFixtures(): { fixtures: Fixture[]; teamGroups: TeamGroup[] } {
   const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
 
   const fixtures: Fixture[] = [];
+  const knockoutKickoffs: KnockoutKickoff[] = [];
   for (let r = range.s.r; r <= range.e.r; r++) {
     const matchNo = get(r, 1); // B
-    if (typeof matchNo !== "number" || !Number.isInteger(matchNo) || matchNo < 1 || matchNo > 72) {
-      continue;
+    if (typeof matchNo !== "number" || !Number.isInteger(matchNo)) continue;
+    // Group fixtures (1–72): teams are known and seeded now.
+    if (matchNo >= 1 && matchNo <= 72) {
+      const home = get(r, 8); // I
+      const away = get(r, 9); // J
+      if (home == null || away == null) continue;
+      fixtures.push({
+        match_no: matchNo,
+        home_team: String(home).trim(),
+        away_team: String(away).trim(),
+        kickoff_at: serialToIso(get(r, 4)), // E = local host time
+      });
+    } else if (matchNo >= 73 && matchNo <= 104 && matchNo !== 103) {
+      // Scored knockout matches (73–102, 104; third-place 103 excluded): only the
+      // kickoff is known up front, used for prediction eligibility.
+      knockoutKickoffs.push({ match_no: matchNo, kickoff_at: serialToIso(get(r, 4)) });
     }
-    const home = get(r, 8); // I
-    const away = get(r, 9); // J
-    if (home == null || away == null) continue;
-    fixtures.push({
-      match_no: matchNo,
-      home_team: String(home).trim(),
-      away_team: String(away).trim(),
-      kickoff_at: serialToIso(get(r, 4)), // E = local host time
-    });
   }
   fixtures.sort((a, b) => a.match_no - b.match_no);
-  return { fixtures, teamGroups: readTeamGroups(wb) };
+  knockoutKickoffs.sort((a, b) => a.match_no - b.match_no);
+  return { fixtures, teamGroups: readTeamGroups(wb), knockoutKickoffs };
 }
 
 async function main(): Promise<void> {
@@ -130,7 +147,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const { fixtures, teamGroups } = readGroupFixtures();
+  const { fixtures, teamGroups, knockoutKickoffs } = readGroupFixtures();
   if (fixtures.length !== 72) {
     throw new Error(`Expected 72 group fixtures, found ${fixtures.length}. Aborting.`);
   }
@@ -154,10 +171,20 @@ async function main(): Promise<void> {
     throw new Error(`Upsert into "team_groups" failed: ${tgError.message}`);
   }
 
+  // Seed knockout kickoff times (teams/scores stay null until the admin logs
+  // results). Only the kickoff is needed up front, for prediction eligibility.
+  const { error: koError } = await supabase
+    .from("actual_knockout_matches")
+    .upsert(knockoutKickoffs, { onConflict: "match_no" });
+  if (koError) {
+    throw new Error(`Upsert into "actual_knockout_matches" failed: ${koError.message}`);
+  }
+
   console.log(`Seeded ${fixtures.length} group fixtures into "matches".`);
   console.log(`  e.g. match 1: ${fixtures[0].home_team} vs ${fixtures[0].away_team}`);
   console.log(`Seeded ${teamGroups.length} team→group rows into "team_groups".`);
   console.log(`  e.g. ${teamGroups[0].team} → group ${teamGroups[0].group_letter}`);
+  console.log(`Seeded ${knockoutKickoffs.length} knockout kickoff times into "actual_knockout_matches".`);
 }
 
 main().catch((err) => {

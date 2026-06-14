@@ -1,9 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { getTeamFlag } from "@/lib/flags";
 import type { AdvRound } from "@/lib/rounds";
+import { MAX_USERNAME_LEN } from "@/lib/manualEntry";
+
+const MAX_USERNAME_CHANGES = 3;
 
 interface MatchPrediction {
   predHome: number;
@@ -38,6 +42,7 @@ interface ProfileClientProps {
   profileId: number;
   username: string;
   createdAt: string;
+  usernameChangesUsed: number;
   rank: number | null;
   stats: PlayerStats | null;
   followers: { id: number; username: string }[];
@@ -61,6 +66,7 @@ export default function ProfileClient({
   profileId,
   username,
   createdAt,
+  usernameChangesUsed,
   rank,
   stats,
   followers: initialFollowers,
@@ -88,6 +94,60 @@ export default function ProfileClient({
   const [groupFilter, setGroupFilter] = useState<"all" | "exact" | "outcome" | "incorrect" | "pending">("all");
 
   const isOwnProfile = currentUser?.id === profileId;
+
+  // Username editing (own profile only). Players get MAX_USERNAME_CHANGES renames.
+  const router = useRouter();
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState(username);
+  const [changesUsed, setChangesUsed] = useState(usernameChangesUsed);
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const changesRemaining = Math.max(0, MAX_USERNAME_CHANGES - changesUsed);
+
+  function openNameEditor() {
+    setNameInput(username);
+    setNameError(null);
+    setEditingName(true);
+  }
+
+  async function saveUsername() {
+    const trimmed = nameInput.trim();
+    if (savingName) return;
+    if (trimmed.length === 0) {
+      setNameError("Please enter a username.");
+      return;
+    }
+    // No-op (same spelling) — just close.
+    if (trimmed === username) {
+      setEditingName(false);
+      return;
+    }
+    setSavingName(true);
+    setNameError(null);
+    try {
+      const res = await fetch("/api/user/change-username", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: trimmed }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        setNameError(data.error || "Could not change your username.");
+        setSavingName(false);
+        return;
+      }
+      setChangesUsed(data.changesUsed ?? changesUsed);
+      setEditingName(false);
+      setSavingName(false);
+      // The username is part of the profile URL — navigate to the new one and
+      // refresh server data so every place that shows the name updates.
+      router.replace(`/user/${encodeURIComponent(data.username)}`);
+      router.refresh();
+    } catch {
+      setNameError("Something went wrong. Please try again.");
+      setSavingName(false);
+    }
+  }
 
   // Generate a custom gradient background based on the username
   function getAvatarGradient(name: string): string {
@@ -230,7 +290,59 @@ export default function ProfileClient({
               {username.slice(0, 2).toUpperCase()}
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">{username}</h1>
+              {editingName ? (
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <input
+                      autoFocus
+                      value={nameInput}
+                      maxLength={MAX_USERNAME_LEN}
+                      disabled={savingName}
+                      onChange={(e) => setNameInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveUsername();
+                        if (e.key === "Escape") setEditingName(false);
+                      }}
+                      className="w-48 rounded-lg border border-black/15 bg-background px-3 py-1.5 text-lg font-bold tracking-tight outline-none focus:border-foreground/40 dark:border-white/20"
+                    />
+                    <button
+                      onClick={saveUsername}
+                      disabled={savingName}
+                      className="rounded-lg bg-foreground px-3 py-1.5 text-xs font-semibold text-background hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                    >
+                      {savingName ? "Saving…" : "Save"}
+                    </button>
+                    <button
+                      onClick={() => setEditingName(false)}
+                      disabled={savingName}
+                      className="rounded-lg px-2 py-1.5 text-xs font-medium text-foreground/60 hover:text-foreground cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {nameError ? (
+                    <p className="text-xs text-red-600 dark:text-red-400">{nameError}</p>
+                  ) : (
+                    <p className="text-xs text-foreground/50">
+                      {changesRemaining} of {MAX_USERNAME_CHANGES} changes remaining
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl font-bold tracking-tight">{username}</h1>
+                  {isOwnProfile && changesRemaining > 0 && (
+                    <button
+                      onClick={openNameEditor}
+                      title={`Change username (${changesRemaining} of ${MAX_USERNAME_CHANGES} remaining)`}
+                      aria-label="Change username"
+                      className="rounded-md p-1 text-foreground/40 hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10 cursor-pointer"
+                    >
+                      ✏️
+                    </button>
+                  )}
+                </div>
+              )}
               <p className="text-xs text-foreground/50 mt-0.5">
                 Joined {new Date(createdAt).toLocaleDateString()}
               </p>

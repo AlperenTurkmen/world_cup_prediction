@@ -30,3 +30,6 @@ yarn-error.log*
 
 # vercel
 .vercel
+
+# local data backups (contain user PII / password hashes)
+/backups

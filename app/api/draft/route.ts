@@ -15,7 +15,7 @@ import { getPendingGoogleIdentity } from "@/lib/googleAuth";
 import { getCurrentPlayer } from "@/lib/playerAuth";
 import {
   sanitizeGroupScores,
-  sanitizeKoWinners,
+  sanitizeKoScores,
   MAX_USERNAME_LEN,
   type DraftPayload,
 } from "@/lib/manualEntry";
@@ -38,7 +38,7 @@ export async function GET() {
 
   const { data, error } = await getSupabaseAdmin()
     .from("entry_drafts")
-    .select("username, group_scores, ko_winners, updated_at")
+    .select("username, group_scores, ko_scores, updated_at")
     .eq("google_sub", identity.sub)
     .maybeSingle();
 
@@ -51,7 +51,7 @@ export async function GET() {
     ? {
         username: data.username ?? "",
         groupScores: sanitizeGroupScores(data.group_scores),
-        koWinners: sanitizeKoWinners(data.ko_winners),
+        koScores: sanitizeKoScores(data.ko_scores),
       }
     : null;
 
@@ -75,7 +75,7 @@ export async function PUT(req: Request) {
   const raw = (body ?? {}) as Record<string, unknown>;
   const username = typeof raw.username === "string" ? raw.username.trim().slice(0, MAX_USERNAME_LEN) : "";
   const groupScores = sanitizeGroupScores(raw.groupScores);
-  const koWinners = sanitizeKoWinners(raw.koWinners);
+  const koScores = sanitizeKoScores(raw.koScores);
 
   const { error } = await getSupabaseAdmin().from("entry_drafts").upsert(
     {
@@ -83,7 +83,7 @@ export async function PUT(req: Request) {
       google_email: identity.email,
       username: username || null,
       group_scores: groupScores,
-      ko_winners: koWinners,
+      ko_scores: koScores,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "google_sub" },
