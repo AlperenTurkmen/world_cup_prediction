@@ -55,6 +55,12 @@ export default async function UploadPage() {
           >
             Log in to an existing entry
           </Link>
+          <Link
+            href="/tutorial"
+            className="inline-flex justify-center rounded-md border border-black/15 px-5 py-2.5 text-sm font-medium dark:border-white/20"
+          >
+            How it works
+          </Link>
         </div>
       </main>
     );

@@ -87,6 +87,9 @@ export default function UploadForm({ googleEmail }: UploadFormProps) {
         Excel workbook, <strong>open and save it once in Excel</strong> so the bracket
         calculates, then upload it here. One entry per person.
       </p>
+      <Link href="/tutorial" className="mt-3 inline-block text-sm font-medium underline">
+        Need the upload steps and scoring summary?
+      </Link>
 
       <div className="mt-8 space-y-6">
         <div>
