@@ -11,6 +11,24 @@ export interface Match {
   kickoff_at: string | null;
   home_goals: number | null;
   away_goals: number | null;
+  group_letter?: string | null;
+}
+
+function formatKickoff(kickoff_at: string | null, group_letter?: string | null): string {
+  const parts: string[] = [];
+  if (kickoff_at) {
+    const d = new Date(kickoff_at);
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const h = d.getUTCHours();
+    const m = d.getUTCMinutes();
+    parts.push(`${day}/${month}`);
+    if (h !== 0 || m !== 0) {
+      parts.push(` ${String(h).padStart(2, "0")}.${String(m).padStart(2, "0")}`);
+    }
+  }
+  if (group_letter) parts.push(` Group ${group_letter}`);
+  return parts.join("") || "—";
 }
 
 interface Prediction {
@@ -77,7 +95,9 @@ export default function GamesPanel({ matches }: { matches: Match[] }) {
                   isSelected ? "bg-black/5 dark:bg-white/5" : ""
                 }`}
               >
-                <span className="opacity-40 w-5 shrink-0 tabular-nums">{match.match_no}</span>
+                <span className="opacity-40 shrink-0 tabular-nums text-[10px] w-28">
+                  {formatKickoff(match.kickoff_at, match.group_letter)}
+                </span>
 
                 <span className="flex-1 flex items-center gap-1 min-w-0">
                   <span>{getTeamFlag(match.home_team)}</span>

@@ -10,6 +10,7 @@ import {
 import LoginForm from "./LoginForm";
 import LogoutButton from "./LogoutButton";
 import ResultsUpload from "./ResultsUpload";
+import CreateEntry from "./CreateEntry";
 import GroupResults from "./GroupResults";
 import Advancers from "./Advancers";
 import Moderation from "./Moderation";
@@ -69,6 +70,7 @@ export default async function AdminPage() {
           <GlobalStart matches={matches} current={globalStart} />
           <PredictionValidity entries={entries ?? []} />
           <Moderation entries={entries ?? []} leagues={leagues ?? []} />
+          <CreateEntry />
           <ResultsUpload />
           <GroupResults matches={matches} />
           <Advancers teams={teams ?? []} initial={advancers!} />

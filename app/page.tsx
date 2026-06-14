@@ -22,7 +22,7 @@ async function getPageData(): Promise<PageData> {
   try {
     const supabase = getSupabaseAdmin();
 
-    const [board, results, matchesRes] = await Promise.all([
+    const [board, results, matchesRes, teamGroupsRes] = await Promise.all([
       supabase
         .from("leaderboard")
         .select("*")
@@ -40,6 +40,9 @@ async function getPageData(): Promise<PageData> {
         .select("id, match_no, home_team, away_team, kickoff_at, home_goals, away_goals")
         .order("kickoff_at", { ascending: true, nullsFirst: false })
         .order("match_no", { ascending: true }),
+      supabase
+        .from("team_groups")
+        .select("team, group_letter"),
     ]);
 
     if (board.error) {
@@ -47,11 +50,19 @@ async function getPageData(): Promise<PageData> {
       return { rows: [], resultsLogged: 0, error: true, matches: [] };
     }
 
+    const groupByTeam = new Map(
+      (teamGroupsRes.data ?? []).map((r) => [r.team, r.group_letter as string])
+    );
+    const matches = (matchesRes.data ?? []).map((m) => ({
+      ...m,
+      group_letter: groupByTeam.get(m.home_team) ?? null,
+    })) as Match[];
+
     return {
       rows: (board.data ?? []) as LeaderboardRow[],
       resultsLogged: results.count ?? 0,
       error: false,
-      matches: (matchesRes.data ?? []) as Match[],
+      matches,
     };
   } catch (err) {
     console.error("leaderboard load threw:", err);
