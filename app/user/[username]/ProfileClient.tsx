@@ -34,6 +34,7 @@ interface PlayerStats {
   knockout_points: number;
   total: number;
   exact_count: number;
+  played_count: number;
   champion_pick: string | null;
   champion_correct: number;
 }
@@ -471,6 +472,7 @@ export default function ProfileClient({
                 </div>
 
                 <div className="mt-6 border-t border-black/5 dark:border-white/5 pt-4 text-xs text-foreground/60 flex items-center justify-between">
+                  <span>Predictions played: <strong>{stats?.played_count ?? 0}</strong></span>
                   <span>Exact group scorelines: <strong>{stats?.exact_count ?? 0}</strong></span>
                   <span>Submission time: <strong>{new Date(createdAt).toLocaleTimeString()}</strong></span>
                 </div>

@@ -279,6 +279,24 @@ insert into scoring_weights (key, value) values
 on conflict (key) do update set value = excluded.value;
 
 
+-- -----------------------------------------------------------------------------
+-- app_settings — single-row global configuration for the public leaderboard.
+--    global_start_match_id is the tournament-wide "everyone starts here" floor:
+--    when set, the global board scores group-match (dimension A) points only
+--    from that game onward (chronologically), and a group's ranking (B) only if
+--    all 6 of its games are at/after it — exactly the per-league cutoff, applied
+--    globally. NULL = score the whole tournament. Knockouts (C/D/E) always count.
+--    This is a deterministic floor independent of upload timing or is_score_eligible.
+--    The row is a singleton (id = 1); the leaderboard view reads it on every read.
+-- -----------------------------------------------------------------------------
+create table if not exists app_settings (
+  id int primary key default 1,
+  global_start_match_id int references matches(id),
+  constraint app_settings_singleton check (id = 1)
+);
+insert into app_settings (id) values (1) on conflict (id) do nothing;
+
+
 -- =============================================================================
 -- leaderboard VIEW — the four-dimension scoring model, computed live.
 -- =============================================================================
@@ -343,6 +361,7 @@ returns table (
   knockout_points  int,
   total            int,
   exact_count      int,
+  played_count     int,
   champion_correct int,
   created_at       timestamptz
 )
@@ -399,7 +418,15 @@ group_raw as (
                        and p.is_score_eligible is true
                        and (m.result_logged_at is null or e.created_at < m.result_logged_at)
                        and p.pred_home = m.home_goals and p.pred_away = m.away_goals
-                      then 1 else 0 end), 0) as n_exact
+                      then 1 else 0 end), 0) as n_exact,
+    -- "Played & valid": group predictions that cleared the dimension-A fairness
+    -- gate (result logged, eligible, entry predates the logging). Counts the
+    -- prediction whether or not any scoring axis matched — it measures how many
+    -- of the user's predictions are actually live, not how well they did.
+    coalesce(sum(case when m.home_goals is not null and m.away_goals is not null
+                       and p.is_score_eligible is true
+                       and (m.result_logged_at is null or e.created_at < m.result_logged_at)
+                      then 1 else 0 end), 0) as n_played
   from visible_entries e
   left join predictions p on p.entry_id = e.id
   -- Apply the group-match cutoff here: matches before the league's start game
@@ -551,7 +578,16 @@ ko_score_raw as (
                        and (akm.result_logged_at is null or e.created_at < akm.result_logged_at)
                        and kp.home_team = akm.home_team and kp.away_team = akm.away_team
                        and kp.pred_home = akm.home_goals and kp.pred_away = akm.away_goals
-                      then 1 else 0 end), 0) as n_ko_exact
+                      then 1 else 0 end), 0) as n_ko_exact,
+    -- "Played & valid" knockout scorelines: same gate as dimension E (actual
+    -- result logged, eligible, predicted matchup equals the actual one, entry
+    -- predates the logging). Added to the group played count for the board's
+    -- "Played" column. 0 during the group stage.
+    coalesce(sum(case when akm.home_goals is not null and akm.away_goals is not null
+                       and kp.is_score_eligible is true
+                       and (akm.result_logged_at is null or e.created_at < akm.result_logged_at)
+                       and kp.home_team = akm.home_team and kp.away_team = akm.away_team
+                      then 1 else 0 end), 0) as n_ko_played
   from visible_entries e
   left join knockout_predictions kp on kp.entry_id = e.id
   left join actual_knockout_matches akm on akm.match_no = kp.match_no
@@ -587,6 +623,7 @@ scored as (
       + ko.n_ko_teamgoals * w.w_teamgoals
       + ko.n_ko_exact     * w.w_exact                     as knockout_points,
     gr.n_exact                                            as exact_count,
+    gr.n_played + ko.n_ko_played                          as played_count,
     champ.champion_correct                                as champion_correct,
     e.created_at                                          as created_at
   from visible_entries e
@@ -606,16 +643,27 @@ select
   knockout_points,
   group_points + ranking_points + knockout_points        as total,
   exact_count,
+  played_count,
   champion_correct,
   created_at
 from scored;
 $$;
 
 
--- The global leaderboard: the same scoring with no cutoff, every entry. Kept as
--- a view so existing `.from("leaderboard")` queries are unchanged.
+-- The global leaderboard: the same scoring, every entry, with the optional
+-- global start-game floor from app_settings applied as the cutoff. When
+-- global_start_match_id is NULL both scalar subqueries return NULL, so
+-- compute_leaderboard runs with no cutoff (whole tournament) exactly as before.
+-- Kept as a view so existing `.from("leaderboard")` queries are unchanged.
 create or replace view leaderboard as
-  select * from compute_leaderboard(null, null)
+  select * from compute_leaderboard(
+    (select sm.kickoff_at
+       from app_settings s left join matches sm on sm.id = s.global_start_match_id
+      where s.id = 1),
+    (select sm.match_no
+       from app_settings s left join matches sm on sm.id = s.global_start_match_id
+      where s.id = 1)
+  )
   order by total desc, exact_count desc, champion_correct desc, created_at asc;
 
 
@@ -894,6 +942,7 @@ returns table (
   knockout_points  int,
   total            int,
   exact_count      int,
+  played_count     int,
   champion_correct int,
   created_at       timestamptz
 )

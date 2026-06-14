@@ -9,6 +9,7 @@ export interface LeaderboardRow {
   knockout_points: number;
   total: number;
   exact_count: number;
+  played_count: number;
   champion_correct: number;
   created_at: string;
 }
@@ -28,6 +29,7 @@ export default function LeaderboardTable({ rows }: { rows: LeaderboardRow[] }) {
             <th className="py-2 pr-3 font-semibold">Player</th>
             <th className="py-2 pr-3 font-semibold">Champion pick</th>
             <th className="py-2 pr-3 text-right font-semibold">Total</th>
+            <th className="py-2 pr-3 text-right font-semibold tabular-nums" title="Predictions played and counted toward scoring">Played</th>
             <th className="hidden py-2 pr-3 text-right font-semibold tabular-nums sm:table-cell">Group</th>
             <th className="hidden py-2 pr-3 text-right font-semibold tabular-nums sm:table-cell">Ranking</th>
             <th className="hidden py-2 pr-3 text-right font-semibold tabular-nums sm:table-cell">Knockout</th>
@@ -48,6 +50,7 @@ export default function LeaderboardTable({ rows }: { rows: LeaderboardRow[] }) {
               </td>
               <td className="py-2 pr-3 opacity-80">{row.champion_pick ?? "—"}</td>
               <td className="py-2 pr-3 text-right font-semibold tabular-nums">{row.total}</td>
+              <td className="py-2 pr-3 text-right tabular-nums opacity-70">{row.played_count}</td>
               <td className="hidden py-2 pr-3 text-right tabular-nums opacity-70 sm:table-cell">{row.group_points}</td>
               <td className="hidden py-2 pr-3 text-right tabular-nums opacity-70 sm:table-cell">{row.ranking_points}</td>
               <td className="hidden py-2 pr-3 text-right tabular-nums opacity-70 sm:table-cell">{row.knockout_points}</td>

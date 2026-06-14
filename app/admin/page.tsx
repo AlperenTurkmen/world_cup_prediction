@@ -5,6 +5,7 @@ import {
   getActualAdvancers,
   getAdminEntries,
   getAdminLeagues,
+  getGlobalStartMatchId,
 } from "@/lib/adminData";
 import LoginForm from "./LoginForm";
 import LogoutButton from "./LogoutButton";
@@ -12,6 +13,8 @@ import ResultsUpload from "./ResultsUpload";
 import GroupResults from "./GroupResults";
 import Advancers from "./Advancers";
 import Moderation from "./Moderation";
+import GlobalStart from "./GlobalStart";
+import PredictionValidity from "./PredictionValidity";
 
 export const dynamic = "force-dynamic";
 
@@ -29,14 +32,16 @@ export default async function AdminPage() {
   }
 
   // Authenticated — load the data the forms need.
-  let matches, teams, advancers, entries, leagues, loadError: string | null = null;
+  let matches, teams, advancers, entries, leagues, globalStart: number | null = null;
+  let loadError: string | null = null;
   try {
-    [matches, teams, advancers, entries, leagues] = await Promise.all([
+    [matches, teams, advancers, entries, leagues, globalStart] = await Promise.all([
       getMatches(),
       getCanonicalTeams(),
       getActualAdvancers(),
       getAdminEntries(),
       getAdminLeagues(),
+      getGlobalStartMatchId(),
     ]);
   } catch (err) {
     console.error("admin data load failed:", err);
@@ -61,6 +66,8 @@ export default async function AdminPage() {
         </div>
       ) : (
         <div className="mt-8 space-y-8">
+          <GlobalStart matches={matches} current={globalStart} />
+          <PredictionValidity entries={entries ?? []} />
           <Moderation entries={entries ?? []} leagues={leagues ?? []} />
           <ResultsUpload />
           <GroupResults matches={matches} />

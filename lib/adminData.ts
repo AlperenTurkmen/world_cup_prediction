@@ -87,6 +87,20 @@ export async function getActualAdvancers(): Promise<Record<AdvRound, string[]>> 
   return result;
 }
 
+/**
+ * The current tournament-wide start-game floor for the public board (the match
+ * id stored in app_settings), or null when the whole tournament is scored.
+ */
+export async function getGlobalStartMatchId(): Promise<number | null> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("app_settings")
+    .select("global_start_match_id")
+    .eq("id", 1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data?.global_start_match_id ?? null) as number | null;
+}
+
 /** Entries shown in the admin moderation panel, including hidden ones. */
 export async function getAdminEntries(): Promise<AdminEntryRow[]> {
   const { data, error } = await getSupabaseAdmin()
