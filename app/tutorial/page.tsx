@@ -3,7 +3,7 @@ import Link from "next/link";
 const uploadSteps = [
   {
     title: "Download and fill the workbook",
-    body: "Use the WCup_2026 Excel file and enter your predicted scores for every group match. The knockout bracket will calculate from those scores.",
+    body: "Download Hermann Baum's WCup_2026 Excel file and enter your predicted scores for every group match. The knockout bracket will calculate from those scores.",
   },
   {
     title: "Open and save it once",
@@ -45,6 +45,22 @@ export default function TutorialPage() {
           Start upload
         </Link>
       </div>
+
+      <section className="mt-8 rounded-lg border border-black/10 p-5 dark:border-white/15">
+        <h2 className="text-lg font-semibold">Get the spreadsheet</h2>
+        <p className="mt-2 text-sm leading-6 opacity-70">
+          Download the official Hermann Baum World Cup 2026 Excel workbook, fill it in,
+          then come back here to upload your saved .xlsx file.
+        </p>
+        <a
+          href="https://hermann-baum.de/excel/WorldCup/en/downloads_2026.php"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-4 inline-flex rounded-md border border-black/15 px-4 py-2 text-sm font-medium dark:border-white/20"
+        >
+          Download Hermann Baum spreadsheet
+        </a>
+      </section>
 
       <section className="mt-10">
         <h2 className="text-lg font-semibold">How to submit</h2>

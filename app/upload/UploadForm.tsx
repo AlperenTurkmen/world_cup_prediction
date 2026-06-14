@@ -91,6 +91,19 @@ export default function UploadForm({ googleEmail }: UploadFormProps) {
         Need the upload steps and scoring summary?
       </Link>
 
+      <div className="mt-4 rounded-md border border-black/10 bg-black/[0.02] p-3 text-sm dark:border-white/15 dark:bg-white/[0.03]">
+        Need the spreadsheet?{" "}
+        <a
+          href="https://hermann-baum.de/excel/WorldCup/en/downloads_2026.php"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium underline"
+        >
+          Download Hermann Baum&apos;s WCup_2026 workbook
+        </a>
+        .
+      </div>
+
       <div className="mt-8 space-y-6">
         <div>
           <label htmlFor="username" className="block text-sm font-medium">
