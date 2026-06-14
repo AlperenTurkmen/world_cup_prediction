@@ -13,6 +13,15 @@ easy to get wrong are summarized in [`CLAUDE.md`](CLAUDE.md) — most importantl
 **Supabase is server-only; the service-role client is never imported into a
 Client Component.**
 
+## Documentation
+
+| Doc | Read it for |
+|-----|-------------|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | **Start here as a developer.** Full architecture, data model, the parser, scoring, every API route, conventions, and how to make common changes. |
+| [`DEPLOY.md`](DEPLOY.md) | Step-by-step Supabase + Vercel deployment and the live smoke test. |
+| [`db/README.md`](db/README.md) | Running/verifying the SQL schema; scoring reference. |
+| [`WORLD_CUP_2026_PLAN.md`](WORLD_CUP_2026_PLAN.md) | The original product spec. |
+
 ## Build progress
 
 | Phase | Description                         | Status |
@@ -24,7 +33,7 @@ Client Component.**
 | 4     | Leaderboard page (`/`) | ✅ Done — [`app/page.tsx`](app/page.tsx) |
 | 5     | Admin results entry (`/admin`) | ✅ Done — [`app/admin`](app/admin/page.tsx), [`app/api/admin`](app/api/admin/login/route.ts) |
 | 6     | Polish (mobile, error/empty states) | ✅ Done — [`app/Header.tsx`](app/Header.tsx) |
-| 7     | Deploy to Vercel | ⬜ |
+| 7     | Deploy to Vercel | 📘 Runbook ready — [`DEPLOY.md`](DEPLOY.md) (your action: create Supabase + Vercel, run schema, seed, smoke test) |
 
 ## Local setup
 
