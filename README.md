@@ -19,7 +19,7 @@ Client Component.**
 |------:|-------------------------------------|--------|
 | 0     | Scaffold (Next.js app, routes, server-only Supabase client) | ✅ Done |
 | 1     | Database (schema + live `leaderboard` view) | ✅ Done — [`db/`](db/) |
-| 2     | Parser + seed (`lib/parseWorkbook.ts`, `scripts/seed.ts`) | ⬜ Next |
+| 2     | Parser + seed (`lib/parseWorkbook.ts`, `scripts/seed.ts`) | ✅ Done — [`lib/`](lib/parseWorkbook.ts), [`scripts/`](scripts/seed.ts) |
 | 3     | Upload flow (`/upload` + `POST /api/upload`) | ⬜ |
 | 4     | Leaderboard page (`/`) | ⬜ |
 | 5     | Admin results entry (`/admin`) | ⬜ |
@@ -33,6 +33,29 @@ npm install
 cp .env.example .env.local   # fill in the four env vars (see below)
 npm run dev
 ```
+
+### Commands
+
+| Command | What it does |
+|---------|--------------|
+| `npm run dev` | Start the dev server |
+| `npm run build` | Production build + typecheck |
+| `npm test` | Run the parser fixture test against the master workbook |
+| `npm run seed` | Insert the 72 group fixtures into the `matches` table (needs Supabase env vars) |
+
+## The Excel parser
+
+`lib/parseWorkbook.ts` extracts predictions from a filled copy of the master
+workbook by **anchor-scanning** the `World Cup` sheet (PLAN §S2): each match has
+a static integer label 1–104, and teams/scores sit at fixed offsets from it.
+Group/R32/R16 read teams at `c+1`/`c+2`; QF and deeper at `c+1`/`c+3`; the
+champion at `c+7` from the match-104 anchor. Every name is validated against the
+canonical 48-team list built from the `Matches` sheet. A non-recalced file
+(blank knockout formulas) is rejected with a "open and save in Excel" message.
+
+The parser fixture test (`lib/parseWorkbook.test.ts`, run via `npm test`)
+guards this against the master workbook: 72 group rows, advancer counts
+32/16/8/4/2, champion = Spain, and group names equal to the `Matches` pairs.
 
 ### Environment variables (`.env.local`, and in Vercel)
 
