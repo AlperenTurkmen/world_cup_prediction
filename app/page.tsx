@@ -63,12 +63,7 @@ export default async function HomePage() {
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-10">
-      <div className="flex items-baseline justify-between gap-4">
-        <h1 className="text-2xl font-bold">World Cup 2026 Leaderboard</h1>
-        <Link href="/upload" className="text-sm font-medium underline whitespace-nowrap">
-          Upload entry →
-        </Link>
-      </div>
+      <h1 className="text-2xl font-bold">World Cup 2026 Leaderboard</h1>
 
       {error ? (
         <div className="mt-8 rounded-md border border-red-600/30 bg-red-600/10 p-4 text-sm text-red-700 dark:text-red-300">
@@ -96,9 +91,9 @@ export default async function HomePage() {
                   <th className="py-2 pr-3 font-semibold">Player</th>
                   <th className="py-2 pr-3 font-semibold">Champion pick</th>
                   <th className="py-2 pr-3 text-right font-semibold">Total</th>
-                  <th className="py-2 pr-3 text-right font-semibold tabular-nums">Group</th>
-                  <th className="py-2 pr-3 text-right font-semibold tabular-nums">Bonus</th>
-                  <th className="py-2 text-right font-semibold tabular-nums">Exact</th>
+                  <th className="hidden py-2 pr-3 text-right font-semibold tabular-nums sm:table-cell">Group</th>
+                  <th className="hidden py-2 pr-3 text-right font-semibold tabular-nums sm:table-cell">Bonus</th>
+                  <th className="hidden py-2 text-right font-semibold tabular-nums sm:table-cell">Exact</th>
                 </tr>
               </thead>
               <tbody>
@@ -111,9 +106,9 @@ export default async function HomePage() {
                     <td className="py-2 pr-3 font-medium">{row.username}</td>
                     <td className="py-2 pr-3 opacity-80">{row.champion_pick ?? "—"}</td>
                     <td className="py-2 pr-3 text-right font-semibold tabular-nums">{row.total}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums opacity-70">{row.group_points}</td>
-                    <td className="py-2 pr-3 text-right tabular-nums opacity-70">{row.bonus_points}</td>
-                    <td className="py-2 text-right tabular-nums opacity-70">{row.exact_count}</td>
+                    <td className="hidden py-2 pr-3 text-right tabular-nums opacity-70 sm:table-cell">{row.group_points}</td>
+                    <td className="hidden py-2 pr-3 text-right tabular-nums opacity-70 sm:table-cell">{row.bonus_points}</td>
+                    <td className="hidden py-2 text-right tabular-nums opacity-70 sm:table-cell">{row.exact_count}</td>
                   </tr>
                 ))}
               </tbody>

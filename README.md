@@ -23,7 +23,7 @@ Client Component.**
 | 3     | Upload flow (`/upload` + `POST /api/upload`) | ✅ Done — [`app/upload`](app/upload/page.tsx), [`app/api/upload`](app/api/upload/route.ts) |
 | 4     | Leaderboard page (`/`) | ✅ Done — [`app/page.tsx`](app/page.tsx) |
 | 5     | Admin results entry (`/admin`) | ✅ Done — [`app/admin`](app/admin/page.tsx), [`app/api/admin`](app/api/admin/login/route.ts) |
-| 6     | Polish (mobile, error/empty states) | ⬜ |
+| 6     | Polish (mobile, error/empty states) | ✅ Done — [`app/Header.tsx`](app/Header.tsx) |
 | 7     | Deploy to Vercel | ⬜ |
 
 ## Local setup

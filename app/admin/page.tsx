@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { isAdminAuthenticated } from "@/lib/adminAuth";
 import { getMatches, getCanonicalTeams, getActualAdvancers } from "@/lib/adminData";
 import LoginForm from "./LoginForm";
@@ -39,12 +38,7 @@ export default async function AdminPage() {
     <main className="mx-auto max-w-3xl px-4 py-10">
       <div className="flex items-baseline justify-between gap-4">
         <h1 className="text-2xl font-bold">Admin · results entry</h1>
-        <div className="flex items-center gap-4">
-          <Link href="/" className="text-sm font-medium underline whitespace-nowrap">
-            Leaderboard →
-          </Link>
-          <LogoutButton />
-        </div>
+        <LogoutButton />
       </div>
 
       {loadError ? (

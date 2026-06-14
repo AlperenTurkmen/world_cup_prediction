@@ -11,6 +11,13 @@ function Row({ match }: { match: MatchRow }) {
   const [state, setState] = useState<SaveState>("idle");
   const [error, setError] = useState<string | null>(null);
 
+  // Keep entries to a sane 0–99 whole number; the server validates too.
+  function clamp(v: string): string {
+    if (v === "") return "";
+    const digits = v.replace(/[^\d]/g, "").slice(0, 2);
+    return digits;
+  }
+
   async function save() {
     setState("saving");
     setError(null);
@@ -51,7 +58,7 @@ function Row({ match }: { match: MatchRow }) {
           max={99}
           value={home}
           onChange={(e) => {
-            setHome(e.target.value);
+            setHome(clamp(e.target.value));
             setState("idle");
           }}
           className={numClass}
@@ -66,7 +73,7 @@ function Row({ match }: { match: MatchRow }) {
           max={99}
           value={away}
           onChange={(e) => {
-            setAway(e.target.value);
+            setAway(clamp(e.target.value));
             setState("idle");
           }}
           className={numClass}
