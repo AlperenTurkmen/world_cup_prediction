@@ -95,3 +95,13 @@ begin
   );
 end;
 $$;
+
+-- 5. Manual prediction entry: drafts table (resumable, keyed by Google account)
+create table if not exists entry_drafts (
+  google_sub   text primary key,
+  google_email text,
+  username     text,
+  group_scores jsonb not null default '{}'::jsonb,
+  ko_winners   jsonb not null default '{}'::jsonb,
+  updated_at   timestamptz not null default now()
+);

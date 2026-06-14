@@ -104,6 +104,14 @@ export default function UploadForm({ googleEmail }: UploadFormProps) {
         .
       </div>
 
+      <div className="mt-4 rounded-md border border-black/10 bg-black/[0.02] p-3 text-sm dark:border-white/15 dark:bg-white/[0.03]">
+        Don&apos;t have the workbook handy?{" "}
+        <Link href="/upload/manual" className="font-medium underline">
+          Enter your predictions by hand instead
+        </Link>{" "}
+        — pick scores game by game and save as you go.
+      </div>
+
       <div className="mt-8 space-y-6">
         <div>
           <label htmlFor="username" className="block text-sm font-medium">
