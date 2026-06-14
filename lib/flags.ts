@@ -47,6 +47,7 @@ const TEAM_FLAGS: Record<string, string> = {
   "Czech Rep.": "🇨🇿",
   "Czechia": "🇨🇿",
   "Bosnia/Herzeg.": "🇧🇦",
+  "Scotland": "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}",
 
   // Africa
   "Morocco": "🇲🇦",
@@ -58,6 +59,9 @@ const TEAM_FLAGS: Record<string, string> = {
   "Egypt": "🇪🇬",
   "Nigeria": "🇳🇬",
   "South Africa": "🇿🇦",
+  "Cape Verde": "🇨🇻",
+  "DR Congo": "🇨🇩",
+  "Ivory Coast": "🇨🇮",
 
   // Asia / Oceania
   "Japan": "🇯🇵",
@@ -69,6 +73,10 @@ const TEAM_FLAGS: Record<string, string> = {
   "Saudi Arabia": "🇸🇦",
   "New Zealand": "🇳🇿",
   "Qatar": "🇶🇦",
+  "Haiti": "🇭🇹",
+  "Iraq": "🇮🇶",
+  "Jordan": "🇯🇴",
+  "Uzbekistan": "🇺🇿",
 };
 
 /** Get the flag emoji for a team name. Defaults to a soccer ball. */
