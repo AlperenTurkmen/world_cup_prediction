@@ -12,12 +12,18 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { parseWorkbook, WorkbookParseError } from "@/lib/parseWorkbook";
+import { hashPassword, setPlayerSession } from "@/lib/playerAuth";
 
 // xlsx parsing needs the Node runtime (not edge).
 export const runtime = "nodejs";
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15 MB — master file is ~3.3 MB
 const MAX_USERNAME_LEN = 40;
+
+interface CreateEntryResult {
+  entry_id: number;
+  late_prediction_count: number;
+}
 
 function badRequest(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status });
@@ -42,6 +48,12 @@ export async function POST(req: Request) {
   }
   if (username.length > MAX_USERNAME_LEN) {
     return badRequest(`Username must be ${MAX_USERNAME_LEN} characters or fewer.`);
+  }
+
+  // --- Validate password ---
+  const rawPassword = form.get("password");
+  if (typeof rawPassword !== "string" || rawPassword.length < 6) {
+    return badRequest("Password must be at least 6 characters.");
   }
 
   // --- Validate file ---
@@ -73,11 +85,15 @@ export async function POST(req: Request) {
   }));
   const advancers = parsed.advancers; // { R32, R16, QF, SF, FINAL, CHAMPION }
 
+  // Hash the password
+  const hashedPassword = hashPassword(rawPassword);
+
   // --- Atomic insert via RPC ---
-  let data: unknown;
+  let data: CreateEntryResult | null;
   try {
     const res = await getSupabaseAdmin().rpc("create_entry", {
       p_username: username,
+      p_password_hash: hashedPassword,
       p_predictions: predictions,
       p_advancers: advancers,
     });
@@ -94,7 +110,7 @@ export async function POST(req: Request) {
         { status: 500 },
       );
     }
-    data = res.data;
+    data = res.data as CreateEntryResult | null;
   } catch (err) {
     // Misconfigured env or network failure reaching Supabase.
     console.error("Database call threw:", err);
@@ -104,11 +120,17 @@ export async function POST(req: Request) {
     );
   }
 
+  // Auto-login the user by setting the cookie
+  if (data?.entry_id) {
+    await setPlayerSession(data.entry_id, username);
+  }
+
   return NextResponse.json({
     ok: true,
-    entryId: data,
+    entryId: data?.entry_id,
     username,
     predictionsSaved: predictions.length,
+    latePredictionCount: data?.late_prediction_count ?? 0,
     champion: advancers.CHAMPION,
   });
 }

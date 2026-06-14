@@ -53,7 +53,11 @@ export async function POST(req: Request) {
   try {
     const { error } = await getSupabaseAdmin()
       .from("matches")
-      .update({ home_goals: home, away_goals: away })
+      .update({
+        home_goals: home,
+        away_goals: away,
+        result_logged_at: home === null ? null : new Date().toISOString(),
+      })
       .eq("match_no", matchNo);
     if (error) {
       console.error("result update failed:", error);

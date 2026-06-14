@@ -61,8 +61,8 @@ master workbook. Run it locally against production with the two Supabase values:
 
 ```bash
 npm install
-SUPABASE_URL="https://YOUR-PROJECT.supabase.co" \
-SUPABASE_SERVICE_ROLE_KEY="YOUR-SERVICE-ROLE-KEY" \
+SUPABASE_URL="YOUR_URL" \
+SUPABASE_SERVICE_ROLE_KEY="YOUR_KEY" \
 npm run seed
 ```
 

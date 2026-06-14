@@ -7,17 +7,19 @@ interface UploadSuccess {
   ok: true;
   username: string;
   predictionsSaved: number;
+  latePredictionCount: number;
   champion: string;
 }
 
 export default function UploadPage() {
   const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<"idle" | "submitting">("idle");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<UploadSuccess | null>(null);
 
-  const canSubmit = username.trim().length > 0 && file !== null && status === "idle";
+  const canSubmit = username.trim().length > 0 && password.length >= 6 && file !== null && status === "idle";
 
   async function handleSubmit() {
     if (!canSubmit || !file) return;
@@ -28,6 +30,7 @@ export default function UploadPage() {
     try {
       const body = new FormData();
       body.append("username", username.trim());
+      body.append("password", password);
       body.append("file", file);
 
       const res = await fetch("/api/upload", { method: "POST", body });
@@ -58,6 +61,13 @@ export default function UploadPage() {
           <p className="mt-2">
             Your predicted champion: <strong>{result.champion}</strong>.
           </p>
+          {result.latePredictionCount > 0 && (
+            <p className="mt-2">
+              Wow, you're really good, you have brilliant guesses{" "}
+              <strong>({result.latePredictionCount})</strong> for the past games, but
+              unfortunately they won't be included in your score.
+            </p>
+          )}
         </div>
         <Link href="/" className="mt-6 inline-block text-sm font-medium underline">
           View the leaderboard →
@@ -87,6 +97,20 @@ export default function UploadPage() {
             maxLength={40}
             onChange={(e) => setUsername(e.target.value)}
             placeholder="e.g. alex"
+            className="mt-1 w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-black/40 dark:border-white/20 dark:focus:border-white/50"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="password" className="block text-sm font-medium">
+            Choose a Password (min 6 characters)
+          </label>
+          <input
+            id="password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Choose a password to log in and manage follows"
             className="mt-1 w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-black/40 dark:border-white/20 dark:focus:border-white/50"
           />
         </div>
