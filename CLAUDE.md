@@ -4,12 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-This is a **working Next.js application**, not a greenfield repo. The stack is **Next.js 16 (App Router) + TypeScript + Tailwind**, Supabase (Postgres) for data, SheetJS (`xlsx`) for parsing, deployed on Vercel. What's built: Excel-upload predictions, **manual game-by-game prediction entry**, Google login + optional password fallback, player profiles + follows, private/public leagues with their own boards, an admin console for logging results, and a live multi-dimensional leaderboard.
+This is a **working Next.js application**, not a greenfield repo. The stack is **Next.js 16 (App Router) + TypeScript + Tailwind**, Supabase (Postgres) for data, SheetJS (`xlsx`) for parsing, deployed on Vercel. What's built: Excel-upload predictions, **manual game-by-game prediction entry**, Google login + optional password fallback, player profiles + follows, private/public leagues with their own boards, an admin console for logging results, **auto-sync of real results from football-data.org**, and a live multi-dimensional leaderboard.
 
 Reference docs (read the relevant one before non-trivial work):
 - `WORLD_CUP_2026_PLAN.md` — the original build spec (PLAN.md). Historical but still the source of the parser/cell-offset details and product decisions.
 - `docs/ARCHITECTURE.md` — how the running app fits together.
 - `docs/SCORING_DESIGN.md` — **authoritative** scoring model (supersedes PLAN §S3).
+- `docs/RESULTS_SYNC.md` — the football-data.org auto-sync (`POST /api/sync`): name mapping, advancement-only writes, fairness interaction, scheduler setup. Read before touching `lib/syncResults.ts`, `lib/footballData.ts`, or `lib/teamNameMap.ts`.
 - `WCup_2026_4.2.7_en.xlsx` — the master Hermann Baum workbook (v4.2.7). Doubles as the test fixture (champion "Spain", fully simulated), the seed source for the 72 group fixtures + team→group map, and the source for the generated knockout-bracket data.
 
 ### Commands

@@ -53,6 +53,12 @@ From **Project Settings → API**:
 | `AUTH_SECRET` | A random string that signs admin/player/Google-link cookies. Generate with: `openssl rand -hex 32` |
 | `GOOGLE_CLIENT_ID` | Google OAuth client id for player sign-in. |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret for the server-side token exchange. |
+| `FOOTBALL_DATA_API_KEY` | *(optional)* Free token from [football-data.org](https://www.football-data.org/) for results auto-sync. |
+| `SYNC_SECRET` | *(optional)* Random bearer token the results-sync scheduler presents to `POST /api/sync`. Generate with: `openssl rand -hex 32` |
+
+The last two are only needed for the football-data.org results auto-sync — see
+[`docs/RESULTS_SYNC.md`](docs/RESULTS_SYNC.md). Skip them and the admin still logs
+results manually.
 
 ### Configure Google OAuth
 
@@ -107,14 +113,17 @@ select match_no, home_team, away_team from matches order by match_no limit 3;
 1. **Add New… → Project**, import the GitHub repo.
 2. Framework preset auto-detects **Next.js**. Leave build settings default
    (`next build`).
-3. **Environment Variables** — add all six (for Production, and Preview if you
-   want PR previews to work):
+3. **Environment Variables** — add the six required (for Production, and Preview
+   if you want PR previews to work), plus the two optional sync vars if you want
+   results auto-sync:
    - `SUPABASE_URL`
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `ADMIN_PASSWORD`
    - `AUTH_SECRET`
    - `GOOGLE_CLIENT_ID`
    - `GOOGLE_CLIENT_SECRET`
+   - `FOOTBALL_DATA_API_KEY` *(optional — results sync)*
+   - `SYNC_SECRET` *(optional — results sync)*
 4. **Deploy**. You'll get a URL like `https://world-cup-prediction.vercel.app`.
 
 ### Via the CLI (alternative)
@@ -128,6 +137,8 @@ vercel env add ADMIN_PASSWORD production
 vercel env add AUTH_SECRET production
 vercel env add GOOGLE_CLIENT_ID production
 vercel env add GOOGLE_CLIENT_SECRET production
+vercel env add FOOTBALL_DATA_API_KEY production   # optional — results sync
+vercel env add SYNC_SECRET production             # optional — results sync
 vercel --prod          # build & deploy
 ```
 

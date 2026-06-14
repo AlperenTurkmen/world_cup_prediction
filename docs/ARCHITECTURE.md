@@ -328,6 +328,14 @@ form or the dashboard based on the same check.
 
 All three are cookie-protected and wrap DB calls to return clean JSON 500s.
 
+**Auto-sync:** `POST /api/sync` pulls finished results from football-data.org and
+writes them through the *same* paths (group scores → `matches`, advancers →
+`replace_actual_advancers`; advancement-only, never knockout scorelines). It auths
+via the admin cookie **or** `Authorization: Bearer <SYNC_SECRET>`, so it backs both
+the `/admin` "Sync now" button and an external scheduler. It only writes group rows
+whose `home_goals` is still NULL, so manual results are never overwritten. Full
+detail: [`RESULTS_SYNC.md`](./RESULTS_SYNC.md).
+
 ---
 
 ## 10. Environment variables
@@ -340,6 +348,8 @@ All three are cookie-protected and wrap DB calls to return clean JSON 500s.
 | `AUTH_SECRET` | cookie signing | signs admin, player, and temporary Google cookies |
 | `GOOGLE_CLIENT_ID` | Google OAuth start route | web application client id |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth callback route | server-side code exchange secret |
+| `FOOTBALL_DATA_API_KEY` | `/api/sync`, `scripts/checkTeamMap.ts` | football-data.org token (free); see [`RESULTS_SYNC.md`](./RESULTS_SYNC.md) |
+| `SYNC_SECRET` | `/api/sync` | bearer token for the external results-sync scheduler |
 
 Locally they live in `.env.local` (gitignored). `scripts/seed.ts` auto-loads
 `.env.local`; Next loads it for `dev`/`build`. In Vercel, set all required values in
