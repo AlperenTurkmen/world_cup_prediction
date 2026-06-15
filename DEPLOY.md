@@ -1,4 +1,4 @@
-# Deployment runbook (Phase 7)
+# Deployment runbook
 
 Step-by-step to take this app live on **Supabase (Postgres)** + **Vercel
 (Next.js)**. End to end it's ~30–45 minutes. Commands assume you run them from
