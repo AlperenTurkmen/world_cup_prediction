@@ -33,7 +33,7 @@ Client Component.**
 | 4     | Leaderboard page (`/`) | ✅ Done — [`app/page.tsx`](app/page.tsx) |
 | 5     | Admin results entry (`/admin`) | ✅ Done — [`app/admin`](app/admin/page.tsx), [`app/api/admin`](app/api/admin/login/route.ts) |
 | 6     | Polish (mobile, error/empty states) | ✅ Done — [`app/Header.tsx`](app/Header.tsx) |
-| 7     | Deploy to Vercel | 📘 Runbook ready — [`DEPLOY.md`](DEPLOY.md) (your action: create Supabase + Vercel, run schema, seed, smoke test) |
+| 7     | Deploy to Vercel | ✅ Done — https://world-cup-prediction-kappa.vercel.app |
 
 ## Local setup
 
