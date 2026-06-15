@@ -543,12 +543,12 @@ export default function ProfileClient({
                 <table className="w-full border-collapse text-left text-sm">
                   <thead>
                     <tr className="border-b border-black/10 bg-black/5 dark:border-white/10 dark:bg-white/5 font-semibold text-foreground/70">
-                      <th className="p-3 text-center w-12">Match</th>
-                      <th className="p-3">Teams</th>
-                      <th className="p-3 text-center w-24">Prediction</th>
-                      <th className="p-3 text-center w-24">Actual</th>
-                      <th className="p-3 text-center w-20">Points</th>
-                      <th className="p-3 text-center w-20">Status</th>
+                      <th className="hidden p-3 text-center w-12 sm:table-cell">Match</th>
+                      <th className="p-2.5 sm:p-3">Teams</th>
+                      <th className="p-2.5 text-center sm:p-3 sm:w-24">Pred.</th>
+                      <th className="p-2.5 text-center sm:p-3 sm:w-24">Actual</th>
+                      <th className="p-2.5 text-center sm:p-3 sm:w-20">Pts</th>
+                      <th className="hidden p-3 text-center w-20 sm:table-cell">Status</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -562,11 +562,11 @@ export default function ProfileClient({
                           onClick={() => setSelectedMatch(pred)}
                           className="border-b border-black/5 last:border-0 hover:bg-black/[0.02] dark:border-white/5 dark:hover:bg-white/[0.02] cursor-pointer transition-colors"
                         >
-                          <td className="p-3 text-center font-medium opacity-50 tabular-nums">
+                          <td className="hidden p-3 text-center font-medium opacity-50 tabular-nums sm:table-cell">
                             {pred.matchNo}
                           </td>
-                          <td className="p-3">
-                            <div className="flex items-center gap-2">
+                          <td className="p-2.5 sm:p-3">
+                            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                               <span>{getTeamFlag(pred.homeTeam)}</span>
                               <span className="font-semibold">{pred.homeTeam}</span>
                               <span className="text-foreground/40 font-normal">vs</span>
@@ -574,18 +574,18 @@ export default function ProfileClient({
                               <span className="font-semibold">{pred.awayTeam}</span>
                             </div>
                           </td>
-                          <td className="p-3 text-center font-bold tabular-nums">
-                            {pred.predHome} - {pred.predAway}
+                          <td className="p-2.5 text-center font-bold tabular-nums sm:p-3">
+                            {pred.predHome}-{pred.predAway}
                           </td>
-                          <td className="p-3 text-center font-medium opacity-80 tabular-nums">
+                          <td className="p-2.5 text-center font-medium opacity-80 tabular-nums sm:p-3">
                             {pred.homeGoals !== null && pred.awayGoals !== null
-                              ? `${pred.homeGoals} - ${pred.awayGoals}`
+                              ? `${pred.homeGoals}-${pred.awayGoals}`
                               : "—"}
                           </td>
-                          <td className="p-3 text-center font-bold tabular-nums">
+                          <td className="p-2.5 text-center font-bold tabular-nums sm:p-3">
                             {pred.homeGoals !== null && pred.awayGoals !== null ? `+${points}` : "—"}
                           </td>
-                          <td className="p-3 text-center">
+                          <td className="hidden p-3 text-center sm:table-cell">
                             {status === "exact" && (
                               <span className="inline-block rounded-md bg-yellow-500/10 border border-yellow-500/20 px-2 py-0.5 text-xs font-semibold text-yellow-600 dark:text-yellow-400">
                                 Exact

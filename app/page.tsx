@@ -2,6 +2,12 @@ import Link from "next/link";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import GamesPanel, { type Match } from "./GamesPanel";
 import LeaderboardTable, { type LeaderboardRow } from "./LeaderboardTable";
+import ScoringInfo, {
+  DEFAULT_ROUND_WEIGHTS,
+  DEFAULT_SCORING_WEIGHTS,
+  type RoundWeights,
+  type ScoringWeights,
+} from "./ScoringInfo";
 
 // The leaderboard is computed live from the view; never cache it.
 export const dynamic = "force-dynamic";
@@ -16,13 +22,15 @@ interface LeaderboardData {
 
 interface PageData extends LeaderboardData {
   matches: Match[];
+  scoringWeights: ScoringWeights;
+  roundWeights: RoundWeights;
 }
 
 async function getPageData(): Promise<PageData> {
   try {
     const supabase = getSupabaseAdmin();
 
-    const [board, results, matchesRes, teamGroupsRes] = await Promise.all([
+    const [board, results, matchesRes, teamGroupsRes, scoringRes, roundsRes] = await Promise.all([
       supabase
         .from("leaderboard")
         .select("*")
@@ -43,11 +51,20 @@ async function getPageData(): Promise<PageData> {
       supabase
         .from("team_groups")
         .select("team, group_letter"),
+      supabase.from("scoring_weights").select("key, value"),
+      supabase.from("round_weights").select("round, weight"),
     ]);
 
     if (board.error) {
       console.error("leaderboard query failed:", board.error);
-      return { rows: [], resultsLogged: 0, error: true, matches: [] };
+      return {
+        rows: [],
+        resultsLogged: 0,
+        error: true,
+        matches: [],
+        scoringWeights: DEFAULT_SCORING_WEIGHTS,
+        roundWeights: DEFAULT_ROUND_WEIGHTS,
+      };
     }
 
     const groupByTeam = new Map(
@@ -58,20 +75,39 @@ async function getPageData(): Promise<PageData> {
       group_letter: groupByTeam.get(m.home_team) ?? null,
     })) as Match[];
 
+    // Merge live weights over the defaults so the guide always matches the view.
+    const scoringWeights = { ...DEFAULT_SCORING_WEIGHTS };
+    for (const r of scoringRes.data ?? []) {
+      if (r.key in scoringWeights) scoringWeights[r.key as keyof ScoringWeights] = r.value as number;
+    }
+    const roundWeights = { ...DEFAULT_ROUND_WEIGHTS };
+    for (const r of roundsRes.data ?? []) {
+      if (r.round in roundWeights) roundWeights[r.round as keyof RoundWeights] = r.weight as number;
+    }
+
     return {
       rows: (board.data ?? []) as LeaderboardRow[],
       resultsLogged: results.count ?? 0,
       error: false,
       matches,
+      scoringWeights,
+      roundWeights,
     };
   } catch (err) {
     console.error("leaderboard load threw:", err);
-    return { rows: [], resultsLogged: 0, error: true, matches: [] };
+    return {
+      rows: [],
+      resultsLogged: 0,
+      error: true,
+      matches: [],
+      scoringWeights: DEFAULT_SCORING_WEIGHTS,
+      roundWeights: DEFAULT_ROUND_WEIGHTS,
+    };
   }
 }
 
 export default async function HomePage() {
-  const { rows, resultsLogged, error, matches } = await getPageData();
+  const { rows, resultsLogged, error, matches, scoringWeights, roundWeights } = await getPageData();
   const updatedAt = new Date().toUTCString();
 
   return (
@@ -104,6 +140,8 @@ export default async function HomePage() {
               <p className="mt-4 text-xs opacity-50">Last updated {updatedAt}</p>
             </>
           )}
+
+          <ScoringInfo weights={scoringWeights} rounds={roundWeights} />
         </div>
 
         {/* ── Right: games panel ── */}
