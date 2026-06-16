@@ -15,72 +15,79 @@ export async function GET(req: Request) {
       );
     }
 
+    // Viewing picks is public — anonymous visitors see everyone's picks too.
+    // A logged-in player additionally gets their own pick split out and their
+    // followed users prioritised in the list.
     const player = await getCurrentPlayer();
-    if (!player) {
-      return NextResponse.json(
-        { ok: false, error: "Please log in to see followed users' predictions." },
-        { status: 401 }
-      );
-    }
-
     const supabase = getSupabaseAdmin();
 
-    // 1. Fetch followed users IDs
-    const { data: follows, error: followsErr } = await supabase
-      .from("follows")
-      .select("followed_id")
-      .eq("follower_id", player.id);
+    // 1. Followed user IDs (only relevant when logged in) and every prediction
+    //    logged for this match, in parallel.
+    const [followsRes, predsRes] = await Promise.all([
+      player
+        ? supabase.from("follows").select("followed_id").eq("follower_id", player.id)
+        : Promise.resolve({ data: [], error: null }),
+      supabase
+        .from("predictions")
+        .select("entry_id, pred_home, pred_away, entries ( username, is_hidden )")
+        .eq("match_id", matchId),
+    ]);
 
-    if (followsErr) {
-      console.error("Error fetching follows:", followsErr);
+    if (followsRes.error) {
+      console.error("Error fetching follows:", followsRes.error);
       return NextResponse.json(
         { ok: false, error: "Could not fetch followed users." },
         { status: 500 }
       );
     }
-
-    const followedIds = follows?.map((f) => f.followed_id) || [];
-
-    // 2. Fetch current user's own prediction + followed users' predictions in parallel
-    const [myPredRes, predsRes] = await Promise.all([
-      supabase
-        .from("predictions")
-        .select("pred_home, pred_away")
-        .eq("match_id", matchId)
-        .eq("entry_id", player.id)
-        .maybeSingle(),
-      followedIds.length > 0
-        ? supabase
-            .from("predictions")
-            .select("pred_home, pred_away, entries ( username, is_hidden )")
-            .eq("match_id", matchId)
-            .in("entry_id", followedIds)
-        : Promise.resolve({ data: [], error: null }),
-    ]);
-
     if (predsRes.error) {
-      console.error("Error fetching followed predictions:", predsRes.error);
+      console.error("Error fetching predictions:", predsRes.error);
       return NextResponse.json(
         { ok: false, error: "Could not fetch predictions." },
         { status: 500 }
       );
     }
 
-    const myPrediction = myPredRes.data
-      ? { username: player.username, predHome: myPredRes.data.pred_home, predAway: myPredRes.data.pred_away }
-      : null;
+    const followedSet = new Set((followsRes.data ?? []).map((f: any) => f.followed_id));
+    const selfId = player?.id ?? null;
 
-    const friendPredictions = (predsRes.data || [])
-      .filter((p: any) => p.entries && !p.entries.is_hidden)
-      .map((p: any) => ({
-        username: p.entries?.username || "Unknown",
+    // 2. Split the current player's own pick out; collect everyone else's
+    //    (non-hidden) picks, flagging the ones the viewer follows.
+    let myPrediction: { username: string; predHome: number; predAway: number } | null = null;
+    const predictions: {
+      username: string;
+      predHome: number;
+      predAway: number;
+      isFollowed: boolean;
+    }[] = [];
+
+    for (const p of (predsRes.data ?? []) as any[]) {
+      if (selfId !== null && p.entry_id === selfId) {
+        myPrediction = {
+          username: player!.username,
+          predHome: p.pred_home,
+          predAway: p.pred_away,
+        };
+        continue;
+      }
+      if (!p.entries || p.entries.is_hidden) continue;
+      predictions.push({
+        username: p.entries.username || "Unknown",
         predHome: p.pred_home,
         predAway: p.pred_away,
-      }));
+        isFollowed: followedSet.has(p.entry_id),
+      });
+    }
 
-    return NextResponse.json({ ok: true, myPrediction, friendPredictions });
+    // 3. Followed users first, then everyone else; alphabetical within each group.
+    predictions.sort((a, b) => {
+      if (a.isFollowed !== b.isFollowed) return a.isFollowed ? -1 : 1;
+      return a.username.localeCompare(b.username);
+    });
+
+    return NextResponse.json({ ok: true, myPrediction, predictions });
   } catch (err) {
-    console.error("Followed predictions API threw:", err);
+    console.error("Predictions API threw:", err);
     return NextResponse.json(
       { ok: false, error: "An unexpected error occurred." },
       { status: 500 }

@@ -61,7 +61,11 @@ interface FollowedPred {
   username: string;
   predHome: number;
   predAway: number;
+  isFollowed?: boolean;
 }
+
+// How many other players to reveal per "Show more" step.
+const SOCIAL_PAGE_SIZE = 10;
 
 export default function ProfileClient({
   profileId,
@@ -90,6 +94,7 @@ export default function ProfileClient({
   const [followedPreds, setFollowedPreds] = useState<FollowedPred[]>([]);
   const [loadingFollowed, setLoadingFollowed] = useState(false);
   const [followedError, setFollowedError] = useState<string | null>(null);
+  const [socialVisible, setSocialVisible] = useState(SOCIAL_PAGE_SIZE);
 
   // Predictions filter state
   const [groupFilter, setGroupFilter] = useState<"all" | "exact" | "outcome" | "incorrect" | "pending">("all");
@@ -191,16 +196,18 @@ export default function ProfileClient({
     }
   }
 
-  // Load followed users' predictions when a match is selected
+  // Load everyone's predictions for a match (followed users prioritised) when
+  // a match is selected. Public — works whether or not the viewer is logged in.
   useEffect(() => {
-    if (!selectedMatch || !currentUser) {
+    if (!selectedMatch) {
       setFollowedPreds([]);
       return;
     }
 
     const matchId = selectedMatch.matchId;
+    setSocialVisible(SOCIAL_PAGE_SIZE);
 
-    async function fetchFollowedPredictions() {
+    async function fetchSocialPredictions() {
       setLoadingFollowed(true);
       setFollowedError(null);
       try {
@@ -218,8 +225,8 @@ export default function ProfileClient({
       }
     }
 
-    fetchFollowedPredictions();
-  }, [selectedMatch, currentUser]);
+    fetchSocialPredictions();
+  }, [selectedMatch]);
 
   // Compute prediction metrics
   function getPredictionStatus(pred: MatchPrediction) {
@@ -786,22 +793,10 @@ export default function ProfileClient({
             {/* Social Predictions Panel */}
             <div className="mt-6 flex-1 overflow-y-auto min-h-0">
               <h4 className="text-sm font-bold text-foreground/75 tracking-tight border-b border-black/5 dark:border-white/5 pb-2">
-                👥 What followed players predicted:
+                👥 What everyone predicted:
               </h4>
 
-              {!currentUser ? (
-                <p className="text-xs text-foreground/50 mt-3 text-center py-4">
-                  Please{" "}
-                  <Link
-                    href={`/login?redirectTo=/user/${encodeURIComponent(username)}`}
-                    className="underline text-foreground font-semibold"
-                    onClick={() => setSelectedMatch(null)}
-                  >
-                    Log In
-                  </Link>{" "}
-                  to see predictions from followed users.
-                </p>
-              ) : loadingFollowed ? (
+              {loadingFollowed ? (
                 <div className="py-8 text-center text-xs opacity-50">Loading predictions...</div>
               ) : followedError ? (
                 <div className="py-4 text-center text-xs text-red-600 dark:text-red-400">
@@ -809,21 +804,55 @@ export default function ProfileClient({
                 </div>
               ) : followedPreds.length === 0 ? (
                 <p className="text-xs text-foreground/45 italic py-6 text-center">
-                  None of the players you follow have predictions logged for this game or you don't follow anyone yet.
+                  No predictions logged for this game yet.
                 </p>
               ) : (
                 <div className="mt-3 space-y-2">
-                  {followedPreds.map((f, i) => (
+                  {followedPreds.slice(0, socialVisible).map((f, i) => (
                     <div
                       key={i}
                       className="flex items-center justify-between rounded-lg p-2.5 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors text-sm font-medium"
                     >
-                      <span>⚽ {f.username}</span>
+                      <span className="flex items-center gap-1.5">
+                        <span>⚽ {f.username}</span>
+                        {f.isFollowed && (
+                          <span className="text-[9px] uppercase tracking-wide text-foreground/40">
+                            following
+                          </span>
+                        )}
+                      </span>
                       <strong className="text-base font-black tabular-nums">
                         {f.predHome} - {f.predAway}
                       </strong>
                     </div>
                   ))}
+
+                  {(() => {
+                    const remaining = followedPreds.length - socialVisible;
+                    const isExpanded = socialVisible > SOCIAL_PAGE_SIZE;
+                    if (remaining <= 0 && !isExpanded) return null;
+                    return (
+                      <div className="flex items-center justify-center gap-4 pt-1">
+                        {remaining > 0 && (
+                          <button
+                            onClick={() => setSocialVisible((c) => c + SOCIAL_PAGE_SIZE)}
+                            className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                          >
+                            Show {Math.min(SOCIAL_PAGE_SIZE, remaining)} more
+                            <span className="opacity-50"> ({remaining} left)</span>
+                          </button>
+                        )}
+                        {isExpanded && (
+                          <button
+                            onClick={() => setSocialVisible(SOCIAL_PAGE_SIZE)}
+                            className="text-xs font-semibold text-foreground/55 hover:text-foreground hover:underline"
+                          >
+                            Collapse
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
