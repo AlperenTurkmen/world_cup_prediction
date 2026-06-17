@@ -140,7 +140,7 @@ export default async function LeaguePage({ params }: LeaguePageProps) {
             No active members with predictions yet.
           </p>
         ) : (
-          <LeaderboardTable rows={board} />
+          <LeaderboardTable rows={board} leagueId={league.id} />
         )}
       </section>
     </main>

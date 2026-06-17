@@ -78,7 +78,7 @@ match_points =  W_OUTCOME · T            (correct winner / draw)
 | 2–1 | 2–1 | 1 | 1 | 1 | 1 | 1 | **8** | Perfect |
 | 2–1 | 3–2 | 1 | 1 | 0 | 0 | 0 | **3** | Right winner *and* margin, wrong goals |
 | 2–0 | 1–0 | 1 | 0 | 0 | 1 | 0 | **3** | Right winner, nailed the away clean sheet |
-| 2–0 | 3–1 | 1 | 0 | 0 | 0 | 0 | **2** | Right winner only |
+| 1–0 | 3–1 | 1 | 0 | 0 | 0 | 0 | **2** | Right winner only (margin differs) |
 | 1–1 | 2–2 | 1 | 1 | 0 | 0 | 0 | **3** | Called the draw and the (zero) margin |
 | 1–1 | 1–1 | 1 | 1 | 1 | 1 | 1 | **8** | Perfect draw |
 | 0–2 | 0–1 | 1 | 0 | 1 | 0 | 0 | **3** | Right away win, nailed home blank |
