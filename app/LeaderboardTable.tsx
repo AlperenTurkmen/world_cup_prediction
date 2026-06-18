@@ -172,6 +172,7 @@ function FragmentRow({
     <>
       <tr
         onClick={onToggle}
+        aria-expanded={isExpanded}
         className={`cursor-pointer border-b border-black/5 last:border-0 transition-colors hover:bg-black/[0.03] dark:border-white/10 dark:hover:bg-white/[0.04] ${
           isExpanded ? "bg-black/[0.03] dark:bg-white/[0.04]" : ""
         }`}
@@ -185,13 +186,7 @@ function FragmentRow({
             >
               ▶
             </span>
-            <Link
-              href={`/user/${row.username}`}
-              className="hover:underline"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {row.username}
-            </Link>
+            <span>{row.username}</span>
           </span>
         </td>
         <td className="py-2 pr-3 opacity-80">{row.champion_pick ?? "—"}</td>
@@ -239,19 +234,14 @@ function Breakdown({
   onExtend: () => void;
   onCollapse: () => void;
 }) {
-  if (!state || state.loading) {
-    return <p className="px-1 text-xs opacity-50">Loading {username}&apos;s games…</p>;
-  }
-  if (state.error) {
-    return <p className="px-1 text-xs text-amber-600 dark:text-amber-400">{state.error}</p>;
-  }
-  const games = state.games ?? [];
-  if (games.length === 0) {
-    return <p className="px-1 text-xs opacity-50">No scored group games yet.</p>;
-  }
+  const loading = !state || state.loading;
+  const error = state && !state.loading ? state.error : null;
+  const games = !loading && !error ? state!.games ?? [] : [];
+  const hasGames = games.length > 0;
+  const profileHref = `/user/${encodeURIComponent(username)}`;
 
   const sorted = [...games];
-  if (sort === "points") {
+  if (hasGames && sort === "points") {
     sorted.sort((a, b) => {
       if (b.points !== a.points) return b.points - a.points;
       const ta = a.kickoffAt ? new Date(a.kickoffAt).getTime() : 0;
@@ -267,27 +257,46 @@ function Breakdown({
 
   return (
     <div className="space-y-2">
-      {/* Sort toggle */}
-      <div className="flex items-center justify-between px-1">
-        <span className="text-[11px] uppercase tracking-wide opacity-50">
-          {games.length} scored game{games.length === 1 ? "" : "s"}
-        </span>
-        <div className="flex items-center gap-1">
-          <SortButton
-            active={sort === "recent"}
-            onClick={() => onSort("recent")}
-            label="Sort by most recent"
-            icon={<ClockIcon />}
-          />
-          <SortButton
-            active={sort === "points"}
-            onClick={() => onSort("points")}
-            label="Sort by most points"
-            icon={<TargetIcon />}
-          />
-        </div>
+      {/* Header: the profile link is always available once expanded; the games
+          count + sort toggle only appear when there are scored games. */}
+      <div className="flex items-center justify-between gap-2 px-1">
+        <Link
+          href={profileHref}
+          className="truncate text-[11px] font-semibold text-blue-600 hover:underline dark:text-blue-400"
+        >
+          View {username}&apos;s profile →
+        </Link>
+        {hasGames && (
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="hidden text-[11px] uppercase tracking-wide opacity-50 sm:inline">
+              {games.length} scored game{games.length === 1 ? "" : "s"}
+            </span>
+            <div className="flex items-center gap-1">
+              <SortButton
+                active={sort === "recent"}
+                onClick={() => onSort("recent")}
+                label="Sort by most recent"
+                icon={<ClockIcon />}
+              />
+              <SortButton
+                active={sort === "points"}
+                onClick={() => onSort("points")}
+                label="Sort by most points"
+                icon={<TargetIcon />}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
+      {loading ? (
+        <p className="px-1 text-xs opacity-50">Loading {username}&apos;s games…</p>
+      ) : error ? (
+        <p className="px-1 text-xs text-amber-600 dark:text-amber-400">{error}</p>
+      ) : !hasGames ? (
+        <p className="px-1 text-xs opacity-50">No scored group games yet.</p>
+      ) : (
+        <>
       <ul className="space-y-0.5">
         {shown.map((g) => (
           <li
@@ -334,6 +343,8 @@ function Breakdown({
             </button>
           )}
         </div>
+      )}
+        </>
       )}
     </div>
   );
