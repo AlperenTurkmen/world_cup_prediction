@@ -18,6 +18,8 @@ import { getMatches, getCanonicalTeams } from "@/lib/adminData";
 import { ADV_ROUNDS } from "@/lib/rounds";
 import { fetchWorldCupMatches, FootballDataError } from "@/lib/footballData";
 import { syncResults, type ExistingMatch } from "@/lib/syncResults";
+import { deriveActualKnockout } from "@/lib/actualBracket";
+import type { GroupFixture, GroupScores } from "@/lib/deriveBracket";
 
 export const runtime = "nodejs";
 
@@ -38,13 +40,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  // 1. Pull live data + current fixtures.
-  let apiMatches, matches, canonicalList;
+  // 1. Pull live data + current fixtures (incl. team→group for bracket derivation).
+  const supabase = getSupabaseAdmin();
+  let apiMatches, matches, canonicalList, groupsRes;
   try {
-    [apiMatches, matches, canonicalList] = await Promise.all([
+    [apiMatches, matches, canonicalList, groupsRes] = await Promise.all([
       fetchWorldCupMatches(),
       getMatches(),
       getCanonicalTeams(),
+      supabase.from("team_groups").select("team, group_letter"),
     ]);
   } catch (err) {
     if (err instanceof FootballDataError) {
@@ -67,9 +71,9 @@ export async function POST(req: Request) {
   const diff = syncResults(apiMatches, existing, new Set(canonicalList));
 
   // 3. Apply group results (one row each; mirrors app/api/admin/result/route.ts).
-  const supabase = getSupabaseAdmin();
   const now = new Date().toISOString();
   let groupsApplied = 0;
+  let knockoutMatchesApplied = 0;
   try {
     for (const u of diff.groupUpdates) {
       const { error } = await supabase
@@ -91,6 +95,63 @@ export async function POST(req: Request) {
       });
       if (error) throw error;
     }
+
+    // 5. Derive + apply actual knockout matchups/scores (matches 73–104). Reuses
+    //    the bracket engine on the REAL group results to fix R32 slots, then maps
+    //    the API's knockout fixtures onto them. Writes drive the tree + the tours.
+    const groupOf = new Map<string, string>();
+    for (const g of (groupsRes.data ?? []) as Array<{ team: string; group_letter: string }>) {
+      groupOf.set(g.team, g.group_letter);
+    }
+    // Group scores AFTER this sync = already-logged results + the ones just applied.
+    const actualGroupScores: GroupScores = {};
+    for (const m of matches) {
+      if (m.home_goals !== null && m.away_goals !== null) {
+        actualGroupScores[m.match_no] = { home: m.home_goals, away: m.away_goals };
+      }
+    }
+    for (const u of diff.groupUpdates) {
+      actualGroupScores[u.match_no] = { home: u.home_goals, away: u.away_goals };
+    }
+    const fixtures: GroupFixture[] = [];
+    for (const m of matches) {
+      const group = groupOf.get(m.home_team);
+      if (group) fixtures.push({ matchNo: m.match_no, home: m.home_team, away: m.away_team, group });
+    }
+    // Only derive once the group stage is fully known (deriveActualKnockout also
+    // guards this); otherwise it's a no-op that leaves the seeded kickoffs intact.
+    if (fixtures.length === 72) {
+      const { writes } = deriveActualKnockout(
+        apiMatches,
+        fixtures,
+        actualGroupScores,
+        new Set(canonicalList),
+      );
+      for (const w of writes) {
+        // Always (re)set the corroborated matchup; leaves kickoff_at untouched.
+        const { error: tErr } = await supabase
+          .from("actual_knockout_matches")
+          .update({ home_team: w.home_team, away_team: w.away_team })
+          .eq("match_no", w.match_no);
+        if (tErr) throw tErr;
+        // Log the scoreline once it exists, never overwriting a logged result.
+        if (w.home_goals !== null && w.away_goals !== null) {
+          const { data: sData, error: sErr } = await supabase
+            .from("actual_knockout_matches")
+            .update({
+              home_goals: w.home_goals,
+              away_goals: w.away_goals,
+              penalty_winner: w.penalty_winner,
+              result_logged_at: now,
+            })
+            .eq("match_no", w.match_no)
+            .is("home_goals", null) // guard: never overwrite a logged knockout result
+            .select("match_no");
+          if (sErr) throw sErr;
+          if (sData && sData.length > 0) knockoutMatchesApplied++; // count only newly-logged
+        }
+      }
+    }
   } catch (err) {
     console.error("sync apply failed:", err);
     return NextResponse.json(
@@ -105,6 +166,7 @@ export async function POST(req: Request) {
   return NextResponse.json({
     ok: true,
     groupsApplied,
+    knockoutMatchesApplied,
     advancersByRound,
     skipped: diff.skipped,
   });

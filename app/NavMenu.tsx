@@ -14,6 +14,8 @@ interface NavMenuProps {
 const LINKS = [
   { href: "/", label: "Leaderboard" },
   { href: "/upload", label: "Upload" },
+  { href: "/tree", label: "Bracket" },
+  { href: "/tours", label: "Knockouts" },
   { href: "/tutorial", label: "How it works" },
   { href: "/leagues", label: "Leagues" },
 ];

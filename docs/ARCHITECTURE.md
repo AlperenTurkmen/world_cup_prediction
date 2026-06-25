@@ -17,8 +17,12 @@ A small web app for a friends-sized World Cup 2026 prediction pool:
   filled master workbook).
 - A **leaderboard** at `/` ranks everyone, with all scoring computed live.
 
-One upload per username (immutable). Knockouts are scored by **advancement
-only**, never by knockout scoreline.
+One upload per username (immutable). Knockouts are scored by **advancement**
+(reach-a-round) **and** by **scoreline** — the latter via the editable per-round
+"tours" (`/tours`) plus a foresight bonus for the pre-tournament bracket. The live
+bracket is at `/tree`. See [`SCORING_DESIGN.md` §12](./SCORING_DESIGN.md) (the
+**authoritative** scoring doc) — several scoring/data-model notes in *this* file
+predate that and describe only the group-stage 3/1/0 + advancement model.
 
 ---
 

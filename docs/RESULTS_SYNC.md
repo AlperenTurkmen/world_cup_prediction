@@ -59,9 +59,23 @@ football-data.org ──fetch──▶ normalize ──▶ syncResults (pure dif
   `replace_actual_advancers` (idempotent). `CHAMPION` = the winner of the
   `FINISHED` final. `THIRD_PLACE` is intentionally ignored.
 
-Knockouts are scored by **advancement only** (see
-[`SCORING_DESIGN.md`](./SCORING_DESIGN.md)), so the sync deliberately does **not**
-write knockout scorelines — only the advancer sets.
+- **Knockout matchups + scorelines** (`actual_knockout_matches`, matches 73–104):
+  once the group stage is complete, `lib/actualBracket.deriveActualKnockout()`
+  reuses `deriveBracket` on the **real** group results to fix the R32 slots, then
+  maps the API's knockout fixtures (team pair → score → winner) onto slots 73–104,
+  round by round. The sync writes each **corroborated** slot's matchup (always) and
+  its scoreline once the game finishes (with the null-guard, so a manually-entered
+  knockout result is never overwritten). It deliberately **skips** any slot the API
+  doesn't corroborate — e.g. a fair-play tie-break put a different team in that slot
+  — rather than store a fabricated matchup; the admin master-upload
+  (`apply_master_results`) fills those. These rows drive the bracket tree
+  (`/tree`), the per-round prediction tours (`/tours`), the foresight bonus, and the
+  dimension-F tour scoreline scoring.
+
+Knockout **advancement** (C/D) is still scored from the advancer sets above; the new
+knockout **scoreline** scoring (dimension F + the foresight bonus) is detailed in
+[`SCORING_DESIGN.md` §12](./SCORING_DESIGN.md). Run `npm test` after touching
+`lib/actualBracket.ts` (its tests gate the matchup/score derivation).
 
 ### What does NOT change
 
@@ -106,7 +120,7 @@ API name maps to. Exit 0 = clean (currently **48/48**).
 Both checks are constant-time. No body required. Response:
 
 ```json
-{ "ok": true, "groupsApplied": 1,
+{ "ok": true, "groupsApplied": 1, "knockoutMatchesApplied": 0,
   "advancersByRound": { "R32": 0, "R16": 0, "QF": 0, "SF": 0, "FINAL": 0, "CHAMPION": 0 },
   "skipped": [] }
 ```
@@ -114,6 +128,7 @@ Both checks are constant-time. No body required. Response:
 | Field | Meaning |
 |-------|---------|
 | `groupsApplied` | count of **newly** written group results (0 = nothing new since last run) |
+| `knockoutMatchesApplied` | count of **newly** logged knockout scorelines this run (matchups are upserted every run; this counts only games whose result was just written) |
 | `advancersByRound` | size of each round's advancer set after the sync |
 | `skipped` | human-readable notes for matches that couldn't be applied (unknown team, no fixture) — should be empty |
 

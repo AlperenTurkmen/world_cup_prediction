@@ -335,5 +335,70 @@ Against the sample file (`WCup_2026_4.2.7_en.xlsx`, champion "Spain"):
 | B | `W_RANK_ADJACENT` | 1 | `scoring_weights` |
 | C | `R32` / `R16` / `QF` / `SF` / `FINAL` | 1 / 2 / 4 / 6 / 8 | `round_weights` |
 | D | `CHAMPION` | 12 | `round_weights` |
+| F | reuses A's `W_OUTCOME`/`W_GOALDIFF`/`W_TEAMGOALS`/`W_EXACT` | — | `scoring_weights` |
+| Foresight | reuses `round_weights` (R32…FINAL) | 1 / 2 / 4 / 6 / 8 | `round_weights` |
 
 Change any number in one place; the live view reflects it on the next read.
+
+---
+
+## 12. Knockout scorelines v3 — per-round tours + foresight bonus
+
+The original model scored knockouts by **advancement only** (dimensions C/D). The
+app later added per-knockout-game **scoreline** scoring; this section is the
+authoritative spec for it and supersedes any "advancement only, never by knockout
+scoreline" wording elsewhere. C/D (reach-a-round) are **unchanged** and still the
+backbone; what follows adds scoreline credit on top.
+
+### 12.1 The "second round of guessing" (Dimension F)
+
+After the group stage the real bracket is known, so each knockout round opens a
+fresh, **editable** prediction window. Users predict the **actual** matchup of
+every game in the round (matches 73–102, 104), stored in `round_tour_predictions`
+(one upserted row per entry+match; no teams stored — the matchup is implicit via
+`actual_knockout_matches`). Each game is scored **exactly like a group match**
+(the same stacking axes and weights, **flat max 8 per game — every round equal**;
+depth is already rewarded by C/D and the foresight bonus).
+
+- **Deadline / fairness:** the whole round locks at its **first kickoff** (seeded
+  from the workbook). A pick scores only if its `updated_at` predates that
+  deadline — enforced at write time (`PUT /api/tours`) and again in SQL
+  (`round_tour_predictions.updated_at < min(kickoff) of the round`).
+- **Penalties:** a level prediction needs a penalty winner (one of the two teams);
+  the scoreline is scored on the regulation/ET goals, the penalty winner is the
+  advancement tiebreak the player also commits to.
+
+### 12.2 Foresight bonus (the repurposed "Dimension E")
+
+The pre-tournament bracket already captures each entry's predicted knockout
+scorelines (`knockout_predictions`). These **no longer score 8 on their own** —
+that would double-pay the same call the tours score. Instead they grant a
+**foresight bonus**: if the bracket nailed BOTH the **exact matchup** (teams) AND
+the **exact scoreline** of a real game — foreseen blind, before any of it was
+known — it earns that round's advancement weight as a bonus:
+
+| Round | R32 | R16 | QF | SF | FINAL |
+|-------|----:|----:|---:|---:|------:|
+| Bonus | +1 | +2 | +4 | +6 | +8 |
+
+(Identical to `round_weights`, reused.) The bonus rewards *deep* foresight far more
+than a shallow one. Gated by `knockout_predictions.is_score_eligible` (true only
+when the bracket predated the game), so a late entry can't farm it. Both the
+bracket and the actual bracket use the same `deriveBracket` slot orientation, so
+the exact `match_no` + teams + score join is consistent.
+
+### 12.3 Where the actual matchups come from
+
+`actual_knockout_matches` (matchup + scoreline + penalty winner + seeded kickoff)
+is populated by `POST /api/sync` via `lib/actualBracket.deriveActualKnockout()`,
+which reuses `deriveBracket` on the **real** group results to fix the R32 slots and
+maps football-data.org's knockout fixtures onto them. It only writes a slot the API
+**corroborates** (never a fabricated matchup); fair-play tie-break divergences are
+left for the admin master-upload (`apply_master_results`) to override. See
+`docs/RESULTS_SYNC.md`.
+
+### 12.4 Totals
+
+`knockout_points` now sums **C + D + F + foresight** (all knockout-flavoured), so
+the leaderboard column set is unchanged. `played_count`'s knockout half follows the
+**tour** predictions (games you actually entered that have a logged result).

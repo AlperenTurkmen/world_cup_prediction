@@ -159,6 +159,32 @@ create table if not exists knockout_predictions (
 
 
 -- -----------------------------------------------------------------------------
+-- 3c. round_tour_predictions — the per-round "second tour" knockout scorelines.
+--     After the group stage, the real bracket is known, so each knockout round
+--     opens a fresh prediction window: users predict the ACTUAL matchup of every
+--     game in that round (matches 73–102, 104), editable until the round's first
+--     kickoff. Unlike knockout_predictions (each entry's OWN predicted bracket),
+--     here the matchup is fixed/known, so only the scoreline is stored — the two
+--     teams come from actual_knockout_matches by match_no. penalty_winner is set
+--     only on a level score (who goes through on penalties). Scored A-style, flat
+--     max 8 per game (leaderboard "dimension F"); a row counts only if it was
+--     last edited before its round's first kickoff (deadline fairness gate). One
+--     row per (entry, match); upserted as the user saves, never immutable.
+-- -----------------------------------------------------------------------------
+create table if not exists round_tour_predictions (
+  entry_id   int  not null references entries(id) on delete cascade,
+  match_no   int  not null,
+  pred_home  int  not null,
+  pred_away  int  not null,
+  penalty_winner text,
+  updated_at timestamptz not null default now(),
+  primary key (entry_id, match_no),
+  constraint round_tour_predictions_match_range check (match_no between 73 and 104),
+  constraint round_tour_predictions_scores_nonneg check (pred_home >= 0 and pred_away >= 0)
+);
+
+
+-- -----------------------------------------------------------------------------
 -- 4. advancement_predictions — teams a user predicted to reach each round.
 --    `round` is one of R32, R16, QF, SF, FINAL, CHAMPION. There is exactly one
 --    CHAMPION row per entry; the other rounds hold many teams.
@@ -541,56 +567,85 @@ knockout_raw as (
   left join round_weights rw on rw.round = ap.round
   group by e.id
 ),
--- ── Dimension E: knockout scorelines (scored exactly like a group match) ─────
--- Same stacking axes/weights as dimension A, but a knockout scoreline only
--- scores when the predicted matchup (home_team, away_team) equals the actual
--- one — comparing scores across different matchups would be meaningless. Never
--- gated by the league cutoff (knockouts always follow the group stage). The
--- third-place game (103) is not stored, so it never scores.
-ko_score_raw as (
+-- ── Knockout helpers: each scored knockout match's round, and each round's
+--    first kickoff (the per-round tour deadline). Match 103 (3rd place) excluded.
+ko_match_round as (
+  select n as match_no,
+         case when n between 73 and 88   then 'R32'
+              when n between 89 and 96   then 'R16'
+              when n between 97 and 100  then 'QF'
+              when n between 101 and 102 then 'SF'
+              when n = 104               then 'FINAL' end as round
+  from generate_series(73, 104) as n
+  where n <> 103
+),
+ko_round_deadline as (
+  select mr.round, min(akm.kickoff_at) as first_kickoff
+  from ko_match_round mr
+  join actual_knockout_matches akm on akm.match_no = mr.match_no
+  where mr.round is not null
+  group by mr.round
+),
+-- ── Foresight bonus (formerly "dimension E"): the pre-tournament bracket's own
+--    knockout scorelines no longer score 8 on their own. Instead, when the
+--    bracket nailed BOTH the exact matchup (home_team, away_team) AND the exact
+--    scoreline of a real knockout game — foreseen blind, back when the bracket
+--    was uploaded — it earns that round's advancement weight as a bonus
+--    (R32 +1, R16 +2, QF +4, SF +6, FINAL +8). is_score_eligible guarantees the
+--    bracket predates the game. Never gated by the league cutoff; 103 excluded.
+foresight_raw as (
   select e.id as entry_id,
     coalesce(sum(case when akm.home_goals is not null and akm.away_goals is not null
                        and kp.is_score_eligible is true
-                       and (akm.result_logged_at is null or e.created_at < akm.result_logged_at)
-                       and kp.home_team = akm.home_team and kp.away_team = akm.away_team
-                       and sign(kp.pred_home - kp.pred_away) = sign(akm.home_goals - akm.away_goals)
-                      then 1 else 0 end), 0) as n_ko_outcome,
-    coalesce(sum(case when akm.home_goals is not null and akm.away_goals is not null
-                       and kp.is_score_eligible is true
-                       and (akm.result_logged_at is null or e.created_at < akm.result_logged_at)
-                       and kp.home_team = akm.home_team and kp.away_team = akm.away_team
-                       and (kp.pred_home - kp.pred_away) = (akm.home_goals - akm.away_goals)
-                      then 1 else 0 end), 0) as n_ko_goaldiff,
-    coalesce(sum(case when akm.home_goals is not null and akm.away_goals is not null
-                       and kp.is_score_eligible is true
-                       and (akm.result_logged_at is null or e.created_at < akm.result_logged_at)
-                       and kp.home_team = akm.home_team and kp.away_team = akm.away_team
-                       and kp.pred_home = akm.home_goals
-                      then 1 else 0 end)
-           + sum(case when akm.home_goals is not null and akm.away_goals is not null
-                       and kp.is_score_eligible is true
-                       and (akm.result_logged_at is null or e.created_at < akm.result_logged_at)
-                       and kp.home_team = akm.home_team and kp.away_team = akm.away_team
-                       and kp.pred_away = akm.away_goals
-                      then 1 else 0 end), 0) as n_ko_teamgoals,
-    coalesce(sum(case when akm.home_goals is not null and akm.away_goals is not null
-                       and kp.is_score_eligible is true
-                       and (akm.result_logged_at is null or e.created_at < akm.result_logged_at)
                        and kp.home_team = akm.home_team and kp.away_team = akm.away_team
                        and kp.pred_home = akm.home_goals and kp.pred_away = akm.away_goals
-                      then 1 else 0 end), 0) as n_ko_exact,
-    -- "Played & valid" knockout scorelines: same gate as dimension E (actual
-    -- result logged, eligible, predicted matchup equals the actual one, entry
-    -- predates the logging). Added to the group played count for the board's
-    -- "Played" column. 0 during the group stage.
-    coalesce(sum(case when akm.home_goals is not null and akm.away_goals is not null
-                       and kp.is_score_eligible is true
-                       and (akm.result_logged_at is null or e.created_at < akm.result_logged_at)
-                       and kp.home_team = akm.home_team and kp.away_team = akm.away_team
-                      then 1 else 0 end), 0) as n_ko_played
+                      then rw.weight else 0 end), 0) as foresight_points
   from visible_entries e
   left join knockout_predictions kp on kp.entry_id = e.id
   left join actual_knockout_matches akm on akm.match_no = kp.match_no
+  left join ko_match_round mr on mr.match_no = kp.match_no
+  left join round_weights rw  on rw.round = mr.round
+  group by e.id
+),
+-- ── Dimension F: per-round tour scorelines. After the group stage each round
+--    opens a fresh window where users predict the REAL matchups; this scores
+--    them exactly like a group match (stacking axes, flat max 8 per game) vs the
+--    actual knockout result. Fairness: a pick counts only if it was last edited
+--    before its round's first kickoff (predicted blind). The matchup is implicit
+--    (actual_knockout_matches by match_no), so no matchup-equality test is
+--    needed. Never gated by the league cutoff. 103 is not a tour game.
+round_tour_raw as (
+  select e.id as entry_id,
+    coalesce(sum(case when akm.home_goals is not null and akm.away_goals is not null
+                       and (d.first_kickoff is null or rtp.updated_at < d.first_kickoff)
+                       and sign(rtp.pred_home - rtp.pred_away) = sign(akm.home_goals - akm.away_goals)
+                      then 1 else 0 end), 0) as n_tour_outcome,
+    coalesce(sum(case when akm.home_goals is not null and akm.away_goals is not null
+                       and (d.first_kickoff is null or rtp.updated_at < d.first_kickoff)
+                       and (rtp.pred_home - rtp.pred_away) = (akm.home_goals - akm.away_goals)
+                      then 1 else 0 end), 0) as n_tour_goaldiff,
+    coalesce(sum(case when akm.home_goals is not null and akm.away_goals is not null
+                       and (d.first_kickoff is null or rtp.updated_at < d.first_kickoff)
+                       and rtp.pred_home = akm.home_goals
+                      then 1 else 0 end)
+           + sum(case when akm.home_goals is not null and akm.away_goals is not null
+                       and (d.first_kickoff is null or rtp.updated_at < d.first_kickoff)
+                       and rtp.pred_away = akm.away_goals
+                      then 1 else 0 end), 0) as n_tour_teamgoals,
+    coalesce(sum(case when akm.home_goals is not null and akm.away_goals is not null
+                       and (d.first_kickoff is null or rtp.updated_at < d.first_kickoff)
+                       and rtp.pred_home = akm.home_goals and rtp.pred_away = akm.away_goals
+                      then 1 else 0 end), 0) as n_tour_exact,
+    -- "Played & valid" tour predictions: a real result is logged and the pick was
+    -- locked before the deadline. Feeds the board's "Played" column post-groups.
+    coalesce(sum(case when akm.home_goals is not null and akm.away_goals is not null
+                       and (d.first_kickoff is null or rtp.updated_at < d.first_kickoff)
+                      then 1 else 0 end), 0) as n_tour_played
+  from visible_entries e
+  left join round_tour_predictions rtp on rtp.entry_id = e.id
+  left join actual_knockout_matches akm on akm.match_no = rtp.match_no
+  left join ko_match_round mr on mr.match_no = rtp.match_no
+  left join ko_round_deadline d on d.round = mr.round
   group by e.id
 ),
 -- Champion pick (for display) and whether it was correct (a tiebreak metric),
@@ -618,21 +673,23 @@ scored as (
     rr.n_rank_exact * w.w_rank_exact
       + rr.n_rank_adjacent * w.w_rank_adjacent            as ranking_points,
     kr.knockout_points
-      + ko.n_ko_outcome   * w.w_outcome
-      + ko.n_ko_goaldiff  * w.w_goaldiff
-      + ko.n_ko_teamgoals * w.w_teamgoals
-      + ko.n_ko_exact     * w.w_exact                     as knockout_points,
+      + fr.foresight_points
+      + rt.n_tour_outcome   * w.w_outcome
+      + rt.n_tour_goaldiff  * w.w_goaldiff
+      + rt.n_tour_teamgoals * w.w_teamgoals
+      + rt.n_tour_exact     * w.w_exact                   as knockout_points,
     gr.n_exact                                            as exact_count,
-    gr.n_played + ko.n_ko_played                          as played_count,
+    gr.n_played + rt.n_tour_played                        as played_count,
     champ.champion_correct                                as champion_correct,
     e.created_at                                          as created_at
   from visible_entries e
   cross join w
-  join group_raw    gr on gr.entry_id = e.id
-  join ranking_raw  rr on rr.entry_id = e.id
-  join knockout_raw kr on kr.entry_id = e.id
-  join ko_score_raw ko on ko.entry_id = e.id
-  join champ           on champ.entry_id = e.id
+  join group_raw     gr on gr.entry_id = e.id
+  join ranking_raw   rr on rr.entry_id = e.id
+  join knockout_raw  kr on kr.entry_id = e.id
+  join foresight_raw fr on fr.entry_id = e.id
+  join round_tour_raw rt on rt.entry_id = e.id
+  join champ            on champ.entry_id = e.id
 )
 select
   entry_id,

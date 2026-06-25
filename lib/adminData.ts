@@ -66,6 +66,27 @@ export async function getCanonicalTeams(): Promise<string[]> {
   return [...teams].sort((a, b) => a.localeCompare(b));
 }
 
+/** An actual knockout match row (matchup + kickoff + result) for the bracket tree. */
+export interface ActualKnockoutRow {
+  match_no: number;
+  home_team: string | null;
+  away_team: string | null;
+  kickoff_at: string | null;
+  home_goals: number | null;
+  away_goals: number | null;
+  penalty_winner: string | null;
+}
+
+/** The real knockout bracket (matches 73–104), ordered by slot, for the tree page. */
+export async function getActualKnockoutMatches(): Promise<ActualKnockoutRow[]> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("actual_knockout_matches")
+    .select("match_no, home_team, away_team, kickoff_at, home_goals, away_goals, penalty_winner")
+    .order("match_no", { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as ActualKnockoutRow[];
+}
+
 /** Current actual advancers, grouped by round. */
 export async function getActualAdvancers(): Promise<Record<AdvRound, string[]>> {
   const { data, error } = await getSupabaseAdmin()
