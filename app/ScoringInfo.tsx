@@ -198,6 +198,92 @@ export default function ScoringInfo({
           </table>
         </section>
 
+        {/* Dimension F — knockout match scores (the tours) */}
+        <section>
+          <div className="mb-2 flex items-center gap-2">
+            <Badge>F</Badge>
+            <h3 className="font-semibold">Knockout match scores</h3>
+            <span className="opacity-50">— the per-round prediction tours</span>
+          </div>
+          <p className="mb-2 text-xs opacity-60">
+            Once the group stage ends, each knockout round opens a fresh window: predict the score of
+            every <strong>real</strong> matchup. Editable until that round&rsquo;s first game kicks off,
+            then the whole round locks. Scored exactly like a group match — the axes stack:
+          </p>
+          <table className="w-full border-collapse">
+            <tbody>
+              <tr className="border-b border-black/5 dark:border-white/10">
+                <td className="py-1.5 pr-3">Correct result (win / draw / loss)</td>
+                <td className="py-1.5 text-right"><Pts>{`+${weights.W_OUTCOME}`}</Pts></td>
+              </tr>
+              <tr className="border-b border-black/5 dark:border-white/10">
+                <td className="py-1.5 pr-3">Correct goal difference</td>
+                <td className="py-1.5 text-right"><Pts>{`+${weights.W_GOALDIFF}`}</Pts></td>
+              </tr>
+              <tr className="border-b border-black/5 dark:border-white/10">
+                <td className="py-1.5 pr-3">Each team&rsquo;s exact goals (up to 2)</td>
+                <td className="py-1.5 text-right"><Pts>{`+${weights.W_TEAMGOALS} each`}</Pts></td>
+              </tr>
+              <tr className="border-b border-black/5 dark:border-white/10">
+                <td className="py-1.5 pr-3">Exact scoreline (perfect)</td>
+                <td className="py-1.5 text-right"><Pts>{`+${weights.W_EXACT}`}</Pts></td>
+              </tr>
+              <tr>
+                <td className="py-1.5 pr-3 font-semibold">Most you can earn on one knockout game</td>
+                <td className="py-1.5 text-right"><Pts>{String(maxMatch)}</Pts></td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="mt-2 text-xs opacity-60">
+            Every round is worth the same here — an exact Round-of-32 score and an exact Final score are
+            both <Pts>{String(maxMatch)}</Pts>. (The reward for going deep is in the bonus below.)
+          </p>
+        </section>
+
+        {/* Foresight bonus — repurposed pre-tournament bracket knockout scorelines */}
+        <section>
+          <div className="mb-2 flex items-center gap-2">
+            <Badge>★</Badge>
+            <h3 className="font-semibold">Foresight bonus</h3>
+            <span className="opacity-50">— calling a knockout game from the very start</span>
+          </div>
+          <p className="mb-2 text-xs opacity-60">
+            If your original pre-tournament bracket already had a knockout game&rsquo;s{" "}
+            <strong>exact two teams and exact score</strong> — foreseen before anyone knew the matchup —
+            you earn a bonus on top of the score above. The deeper the round, the bigger it is:
+          </p>
+          <table className="w-full border-collapse">
+            <tbody>
+              <tr className="border-b border-black/5 dark:border-white/10">
+                <td className="py-1.5 pr-3">Foreseen a Round-of-32 game</td>
+                <td className="py-1.5 text-right"><Pts>{`+${rounds.R32}`}</Pts></td>
+              </tr>
+              <tr className="border-b border-black/5 dark:border-white/10">
+                <td className="py-1.5 pr-3">Foreseen a Round-of-16 game</td>
+                <td className="py-1.5 text-right"><Pts>{`+${rounds.R16}`}</Pts></td>
+              </tr>
+              <tr className="border-b border-black/5 dark:border-white/10">
+                <td className="py-1.5 pr-3">Foreseen a Quarter-final</td>
+                <td className="py-1.5 text-right"><Pts>{`+${rounds.QF}`}</Pts></td>
+              </tr>
+              <tr className="border-b border-black/5 dark:border-white/10">
+                <td className="py-1.5 pr-3">Foreseen a Semi-final</td>
+                <td className="py-1.5 text-right"><Pts>{`+${rounds.SF}`}</Pts></td>
+              </tr>
+              <tr>
+                <td className="py-1.5 pr-3">Foreseen the Final</td>
+                <td className="py-1.5 text-right"><Pts>{`+${rounds.FINAL}`}</Pts></td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="mt-2 text-xs opacity-60">
+            Example: your bracket predicted Brazil 3&ndash;2 Korea in the Round of 32 and that&rsquo;s exactly
+            what happens → <Pts>{String(maxMatch)}</Pts> for the score{" "}
+            <span className="opacity-70">+</span> <Pts>{`${rounds.R32}`}</Pts> foresight ={" "}
+            <Pts>{String(maxMatch + rounds.R32)}</Pts>.
+          </p>
+        </section>
+
         <section>
           <h3 className="mb-1 font-semibold">Ties are broken by</h3>
           <ol className="list-inside list-decimal space-y-0.5 opacity-70">

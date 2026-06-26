@@ -16,10 +16,11 @@ const uploadSteps = [
 ];
 
 const scoringItems = [
-  "Exact group-stage score: 3 points",
-  "Correct group-stage result: 1 point",
-  "Knockout rounds: points for each team you correctly predicted to advance",
-  "Champion pick: the biggest knockout bonus",
+  "Group match: up to 8 points per game — credit stacks for the result, goal difference, each team's exact goals, and a perfect scoreline.",
+  "Group ranking: points for each team's final position in its group (derived from your own scores — no extra picks).",
+  "Knockout progression: a team earns more each round it reaches — Round of 32 through the Final, plus a big bonus for the champion.",
+  "Knockout tours: when the bracket is set, predict each round's real match scores (up to 8 each), editable until that round's first kickoff.",
+  "Foresight bonus: nail a knockout game's exact teams and score in your original bracket and earn a bonus on top — bigger the deeper the round.",
 ];
 
 export default function TutorialPage() {
@@ -83,8 +84,9 @@ export default function TutorialPage() {
       <section className="mt-10 rounded-lg border border-black/10 p-5 dark:border-white/15">
         <h2 className="text-lg font-semibold">How scoring works</h2>
         <p className="mt-2 text-sm leading-6 opacity-70">
-          You score from group match predictions and from teams you correctly send through
-          the knockout bracket. The leaderboard updates as real results are entered.
+          You score from your group-match predictions, the group standings they imply, the teams you
+          send deep into the knockouts, and — once the bracket is set — a fresh round of predicting the
+          real knockout scores. The leaderboard updates live as results come in.
         </p>
         <ul className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
           {scoringItems.map((item) => (
@@ -93,6 +95,13 @@ export default function TutorialPage() {
             </li>
           ))}
         </ul>
+        <p className="mt-4 text-sm leading-6 opacity-70">
+          For the exact points on every axis, see the{" "}
+          <Link href="/" className="font-medium underline">
+            full breakdown under &ldquo;How scoring works&rdquo; on the leaderboard
+          </Link>
+          .
+        </p>
       </section>
 
       <section className="mt-8 rounded-lg border border-amber-500/30 bg-amber-500/10 p-5">

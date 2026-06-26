@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { getTeamFlag } from "@/lib/flags";
 
 export interface Match {
@@ -52,6 +52,21 @@ export default function GamesPanel({ matches }: { matches: Match[] }) {
   const [loading, setLoading] = useState(false);
   const [predError, setPredError] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const matchElsRef = useRef<Map<number, HTMLDivElement>>(new Map());
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const yesterday = new Date();
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+    const yStr = yesterday.toISOString().slice(0, 10);
+    const target = matches.find((m) => m.kickoff_at?.startsWith(yStr));
+    if (!target) return;
+    const el = matchElsRef.current.get(target.id);
+    if (!el) return;
+    container.scrollTop = el.offsetTop - container.offsetTop;
+  }, []);
 
   async function handleClick(match: Match) {
     if (selectedId === match.id) {
@@ -88,13 +103,13 @@ export default function GamesPanel({ matches }: { matches: Match[] }) {
         <p className="text-xs opacity-50 mt-0.5">Click a match to see picks</p>
       </div>
 
-      <div className="divide-y divide-black/5 dark:divide-white/10 overflow-y-auto max-h-[min(72vh,640px)]">
+      <div ref={containerRef} className="divide-y divide-black/5 dark:divide-white/10 overflow-y-auto max-h-[min(72vh,640px)]">
         {matches.map((match) => {
           const isSelected = selectedId === match.id;
           const hasResult = match.home_goals !== null && match.away_goals !== null;
 
           return (
-            <div key={match.id}>
+            <div key={match.id} ref={(el) => { if (el) matchElsRef.current.set(match.id, el); else matchElsRef.current.delete(match.id); }}>
               <button
                 onClick={() => handleClick(match)}
                 className={`w-full text-left px-3 py-2 flex items-center gap-2 text-xs transition-colors hover:bg-black/5 dark:hover:bg-white/5 ${
