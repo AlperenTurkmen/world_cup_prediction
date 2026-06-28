@@ -139,41 +139,38 @@ export function deriveActualKnockout(
     byRound.get(round)!.push({ home, away, homeGoals: m.homeGoals, awayGoals: m.awayGoals });
   }
 
-  const resolveSpec = (spec: string, winners: Map<number, string>): string | null => {
+  const winners = new Map<number, string>(); // slot match_no → advancing team
+  const writes: ActualKnockoutWrite[] = [];
+  const written = new Set<number>();
+
+  const resolveSpec = (spec: string): string | null => {
     if (spec.startsWith("W")) return winners.get(Number(spec.slice(1))) ?? null;
     if (spec.startsWith("RU")) return null; // only the 3rd-place playoff (103) uses RU; skipped
     return r32Slots.get(spec) ?? null;
   };
 
-  const winners = new Map<number, string>(); // slot match_no → advancing team
-  const writes: ActualKnockoutWrite[] = [];
+  // team → group letter, for the R32 recovery pass below.
+  const groupOf = new Map<string, string>();
+  for (const f of fixtures) {
+    groupOf.set(f.home, f.group);
+    groupOf.set(f.away, f.group);
+  }
+  const pairKey = (a: string, b: string) => [a, b].sort().join("|");
 
-  // Ascending order guarantees a slot's feeders resolve before it.
-  for (let no = 73; no <= 104; no++) {
-    if (no === 103) continue;
-    const round = roundOfSlot(no)!;
-    const def = KO_SLOT_DEFS[no];
-    const home = resolveSpec(def.home, winners);
-    const away = resolveSpec(def.away, winners);
-    if (!home || !away) continue; // this round isn't reachable yet
-
-    // Find the API fixture for this matchup (team pair, either orientation). We
-    // only ever write a slot the API CORROBORATES: if the derived pair doesn't
-    // exist in the feed (a fair-play tie-break put the wrong team in this slot, or
-    // the draw isn't published yet) we skip it rather than store a fictional
-    // matchup — leaving it for a later sync or the admin master-upload to fill.
-    const fix = (byRound.get(round) ?? []).find(
+  /** Find the API fixture for a matchup (team pair, either orientation). */
+  const findFix = (round: AdvRound, home: string, away: string) =>
+    (byRound.get(round) ?? []).find(
       (f) => (f.home === home && f.away === away) || (f.home === away && f.away === home),
     );
-    if (!fix) continue;
 
+  /** Record a resolved slot: orient the API scoreline + decide the advancing team. */
+  const emit = (no: number, round: AdvRound, home: string, away: string, fix: ApiFix) => {
     let homeGoals: number | null = null;
     let awayGoals: number | null = null;
     if (fix.homeGoals !== null && fix.awayGoals !== null) {
       [homeGoals, awayGoals] =
         fix.home === home ? [fix.homeGoals, fix.awayGoals] : [fix.awayGoals, fix.homeGoals];
     }
-
     // Winner: decisive scoreline, else the team that advanced (handles penalties).
     let winner: string | null = null;
     if (homeGoals !== null && awayGoals !== null && homeGoals !== awayGoals) {
@@ -183,18 +180,78 @@ export function deriveActualKnockout(
       winner = next.has(home) ? home : next.has(away) ? away : null;
     }
     if (winner) winners.set(no, winner);
-
     const penaltyWinner =
       homeGoals !== null && awayGoals !== null && homeGoals === awayGoals ? winner : null;
+    writes.push({ match_no: no, home_team: home, away_team: away, home_goals: homeGoals, away_goals: awayGoals, penalty_winner: penaltyWinner });
+    written.add(no);
+  };
 
-    writes.push({
-      match_no: no,
-      home_team: home,
-      away_team: away,
-      home_goals: homeGoals,
-      away_goals: awayGoals,
-      penalty_winner: penaltyWinner,
-    });
+  // ── Phase 1: Round of 32 by corroboration. We only ever write a slot the API
+  //    CONFIRMS: if the derived pair isn't in the feed (a fair-play tie-break put
+  //    a different team in this slot, or the draw isn't published yet) we skip it
+  //    here and try the group-membership recovery in phase 2.
+  for (let no = 73; no <= 88; no++) {
+    const def = KO_SLOT_DEFS[no];
+    const home = resolveSpec(def.home);
+    const away = resolveSpec(def.away);
+    if (!home || !away) continue;
+    const fix = findFix("R32", home, away);
+    if (fix) emit(no, "R32", home, away, fix);
+  }
+
+  // ── Phase 2: R32 recovery. The slot specs (1X / 2X / 3-XYZ) map to GROUP
+  //    membership, which is tie-break-independent. So for any R32 slot phase 1
+  //    couldn't corroborate, find the leftover API fixture whose two teams' groups
+  //    fit the slot's home/away specs. Iterate, assigning only slots with exactly
+  //    one candidate, so the most-constrained slots resolve first and disambiguate
+  //    the rest (e.g. a 2D-vs-2G slot fixes which group-G team is the runner-up).
+  const specGroups = (spec: string): string[] => {
+    if (spec.startsWith("3-")) return spec.slice(2).split("");
+    if (/^[12][A-L]$/.test(spec)) return [spec[1]];
+    return [];
+  };
+  const usedPairs = new Set(
+    writes.filter((w) => w.match_no <= 88).map((w) => pairKey(w.home_team, w.away_team)),
+  );
+  const leftoverFix = (byRound.get("R32") ?? []).filter(
+    (f): f is ApiFix & { home: string; away: string } =>
+      !!f.home && !!f.away && !usedPairs.has(pairKey(f.home, f.away)),
+  );
+  let progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (let no = 73; no <= 88; no++) {
+      if (written.has(no)) continue;
+      const hg = specGroups(KO_SLOT_DEFS[no].home);
+      const ag = specGroups(KO_SLOT_DEFS[no].away);
+      const fits = leftoverFix.filter((f) => {
+        const a = groupOf.get(f.home);
+        const b = groupOf.get(f.away);
+        return !!a && !!b && ((hg.includes(a) && ag.includes(b)) || (hg.includes(b) && ag.includes(a)));
+      });
+      if (fits.length !== 1) continue; // ambiguous or none — defer / leave for admin
+      const f = fits[0];
+      const home = hg.includes(groupOf.get(f.home)!) ? f.home : f.away; // orient to the home spec
+      const away = home === f.home ? f.away : f.home;
+      emit(no, "R32", home, away, f);
+      leftoverFix.splice(leftoverFix.indexOf(f), 1);
+      progressed = true;
+    }
+  }
+
+  // ── Phase 3: R16 → Final, in order. Each slot's feeders (W<match>) are now
+  //    resolved (phases 1–2 set the R32 winners), and deeper matchups don't
+  //    diverge — they're determined purely by who won, which the API states
+  //    unambiguously. Ascending order guarantees feeders resolve before dependents.
+  for (let no = 89; no <= 104; no++) {
+    if (no === 103) continue;
+    const round = roundOfSlot(no)!;
+    const def = KO_SLOT_DEFS[no];
+    const home = resolveSpec(def.home);
+    const away = resolveSpec(def.away);
+    if (!home || !away) continue;
+    const fix = findFix(round, home, away);
+    if (fix) emit(no, round, home, away, fix);
   }
 
   return { writes, skipped: [] };

@@ -163,12 +163,13 @@ test("recovers the R32 field and the bulk of scorelines from the real workbook b
     assert.equal(w.penalty_winner, k.penaltyWinner, `slot ${w.match_no} pen`);
   }
 
-  // deriveBracket reproduces exactly 10/16 of this fixture's R32 slot matchups
-  // (groups D & H are fair-play-tied, cascading through the thirds assignment); the
-  // 6 divergent slots are left unwritten (safe). Real tournaments have far fewer
-  // exact ties, and the admin master-upload overrides any that derivation misses.
+  // deriveBracket corroborates only 10/16 of this fixture's R32 slot matchups by
+  // exact derivation (groups D & H are fair-play-tied, cascading through the thirds
+  // assignment); the group-membership recovery pass then fills the other 6 from the
+  // leftover API fixtures — so all 16 R32 slots resolve, every one matching the
+  // workbook exactly (asserted in the loop above).
   const r32Writes = writes.filter((w) => w.match_no >= 73 && w.match_no <= 88);
-  assert.ok(r32Writes.length >= 10, `expected ≥10 corroborated R32 slots, got ${r32Writes.length}`);
+  assert.equal(r32Writes.length, 16, "all 16 R32 slots resolve (corroboration + recovery)");
   // Their participants are a subset of the real R32 field.
   const r32Set = new Set(parsed.advancers.R32);
   for (const w of r32Writes) {
