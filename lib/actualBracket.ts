@@ -78,6 +78,8 @@ export interface ActualKnockoutWrite {
   away_goals: number | null;
   /** The team that went through on penalties — only set on a level score. */
   penalty_winner: string | null;
+  /** Real scheduled kickoff (ISO) from the API, or null if the feed omits it. */
+  kickoff: string | null;
 }
 
 export interface ActualBracketDiff {
@@ -119,6 +121,7 @@ export function deriveActualKnockout(
     away: string | null;
     homeGoals: number | null;
     awayGoals: number | null;
+    kickoff: string | null;
   }
   const byRound = new Map<AdvRound, ApiFix[]>();
   const reached = new Map<AdvRound, Set<string>>();
@@ -136,7 +139,7 @@ export function deriveActualKnockout(
       if (champ) reached.get("CHAMPION")!.add(champ);
     }
     if (!byRound.has(round)) byRound.set(round, []);
-    byRound.get(round)!.push({ home, away, homeGoals: m.homeGoals, awayGoals: m.awayGoals });
+    byRound.get(round)!.push({ home, away, homeGoals: m.homeGoals, awayGoals: m.awayGoals, kickoff: m.kickoff });
   }
 
   const winners = new Map<number, string>(); // slot match_no → advancing team
@@ -182,7 +185,7 @@ export function deriveActualKnockout(
     if (winner) winners.set(no, winner);
     const penaltyWinner =
       homeGoals !== null && awayGoals !== null && homeGoals === awayGoals ? winner : null;
-    writes.push({ match_no: no, home_team: home, away_team: away, home_goals: homeGoals, away_goals: awayGoals, penalty_winner: penaltyWinner });
+    writes.push({ match_no: no, home_team: home, away_team: away, home_goals: homeGoals, away_goals: awayGoals, penalty_winner: penaltyWinner, kickoff: fix.kickoff });
     written.add(no);
   };
 

@@ -128,10 +128,16 @@ export async function POST(req: Request) {
         new Set(canonicalList),
       );
       for (const w of writes) {
-        // Always (re)set the corroborated matchup; leaves kickoff_at untouched.
+        // (Re)set the corroborated matchup, and correct the kickoff to the API's
+        // real schedule when known (the seeded workbook time is only a fallback).
+        const matchupUpdate: Record<string, unknown> = {
+          home_team: w.home_team,
+          away_team: w.away_team,
+        };
+        if (w.kickoff) matchupUpdate.kickoff_at = w.kickoff;
         const { error: tErr } = await supabase
           .from("actual_knockout_matches")
-          .update({ home_team: w.home_team, away_team: w.away_team })
+          .update(matchupUpdate)
           .eq("match_no", w.match_no);
         if (tErr) throw tErr;
         // Log the scoreline once it exists, never overwriting a logged result.

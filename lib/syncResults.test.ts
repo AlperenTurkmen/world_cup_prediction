@@ -17,7 +17,7 @@ function gm(
   awayGoals: number | null,
   status = "FINISHED",
 ): NormalizedMatch {
-  return { stage: "GROUP_STAGE", status, homeApi, awayApi, homeGoals, awayGoals, winner: null };
+  return { stage: "GROUP_STAGE", status, homeApi, awayApi, homeGoals, awayGoals, winner: null, kickoff: null };
 }
 
 function ko(
@@ -34,6 +34,7 @@ function ko(
     homeGoals: null,
     awayGoals: null,
     winner: null,
+    kickoff: null,
     ...opts,
   };
 }

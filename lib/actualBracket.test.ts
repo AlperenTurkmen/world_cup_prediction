@@ -88,6 +88,7 @@ function koMatch(stage: string, home: string, away: string, hg: number, ag: numb
     homeGoals: hg,
     awayGoals: ag,
     winner: hg > ag ? "HOME_TEAM" : ag > hg ? "AWAY_TEAM" : "DRAW",
+    kickoff: null,
   };
 }
 
@@ -198,6 +199,7 @@ test("opens R32 with matchups (no scores) the moment the draw is set, before any
       homeGoals: null,
       awayGoals: null,
       winner: null,
+      kickoff: "2026-06-28T19:00:00Z", // the API's real schedule (overrides the seed)
     });
   }
 
@@ -209,5 +211,6 @@ test("opens R32 with matchups (no scores) the moment the draw is set, before any
     assert.equal(w.away_goals, null);
     assert.equal(w.penalty_winner, null);
     assert.ok(w.home_team && w.away_team, "both teams known");
+    assert.equal(w.kickoff, "2026-06-28T19:00:00Z", "carries the API kickoff for the deadline");
   }
 });

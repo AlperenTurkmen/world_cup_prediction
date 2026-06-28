@@ -44,6 +44,7 @@ export type ApiWinner = "HOME_TEAM" | "AWAY_TEAM" | "DRAW" | null;
 interface RawMatch {
   stage?: string;
   status?: string;
+  utcDate?: string | null;
   homeTeam?: { name?: string | null } | null;
   awayTeam?: { name?: string | null } | null;
   score?: {
@@ -63,6 +64,8 @@ export interface NormalizedMatch {
   awayGoals: number | null;
   /** Match outcome per the API (accounts for ET/penalties on its side). */
   winner: ApiWinner;
+  /** Scheduled kickoff (ISO, UTC) — the authoritative real schedule. */
+  kickoff: string | null;
 }
 
 class FootballDataError extends Error {}
@@ -109,6 +112,7 @@ export function normalizeMatches(raw: RawMatch[]): NormalizedMatch[] {
       homeGoals: typeof ft?.home === "number" ? ft.home : null,
       awayGoals: typeof ft?.away === "number" ? ft.away : null,
       winner: (m.score?.winner ?? null) as ApiWinner,
+      kickoff: typeof m.utcDate === "string" && m.utcDate ? m.utcDate : null,
     };
   });
 }
