@@ -3,6 +3,7 @@ import {
   getMatches,
   getCanonicalTeams,
   getActualAdvancers,
+  getActualKnockoutMatches,
   getAdminEntries,
   getAdminLeagues,
   getGlobalStartMatchId,
@@ -13,6 +14,7 @@ import ResultsUpload from "./ResultsUpload";
 import SyncResults from "./SyncResults";
 import CreateEntry from "./CreateEntry";
 import GroupResults from "./GroupResults";
+import KnockoutResults from "./KnockoutResults";
 import Advancers from "./Advancers";
 import Moderation from "./Moderation";
 import GlobalStart from "./GlobalStart";
@@ -34,13 +36,14 @@ export default async function AdminPage() {
   }
 
   // Authenticated — load the data the forms need.
-  let matches, teams, advancers, entries, leagues, globalStart: number | null = null;
+  let matches, teams, advancers, knockoutMatches, entries, leagues, globalStart: number | null = null;
   let loadError: string | null = null;
   try {
-    [matches, teams, advancers, entries, leagues, globalStart] = await Promise.all([
+    [matches, teams, advancers, knockoutMatches, entries, leagues, globalStart] = await Promise.all([
       getMatches(),
       getCanonicalTeams(),
       getActualAdvancers(),
+      getActualKnockoutMatches(),
       getAdminEntries(),
       getAdminLeagues(),
       getGlobalStartMatchId(),
@@ -75,6 +78,7 @@ export default async function AdminPage() {
           <SyncResults />
           <ResultsUpload />
           <GroupResults matches={matches} />
+          <KnockoutResults matches={knockoutMatches ?? []} teams={teams ?? []} />
           <Advancers teams={teams ?? []} initial={advancers!} />
         </div>
       )}
