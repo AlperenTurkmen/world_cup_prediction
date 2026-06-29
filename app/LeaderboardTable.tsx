@@ -30,6 +30,7 @@ interface BreakdownGame {
   points: number;
   isExact: boolean;
   isOutcome: boolean;
+  roundLabel: string | null;
 }
 
 interface BreakdownState {
@@ -294,17 +295,22 @@ function Breakdown({
       ) : error ? (
         <p className="px-1 text-xs text-amber-600 dark:text-amber-400">{error}</p>
       ) : !hasGames ? (
-        <p className="px-1 text-xs opacity-50">No scored group games yet.</p>
+        <p className="px-1 text-xs opacity-50">No scored games yet.</p>
       ) : (
         <>
       <ul className="space-y-0.5">
         {shown.map((g) => (
           <li
-            key={g.matchNo}
+            key={`${g.roundLabel ?? "g"}-${g.matchNo}`}
             className="flex items-center gap-2 rounded px-1 py-1 text-xs"
           >
             <span className="w-12 shrink-0 tabular-nums opacity-45">{formatDate(g.kickoffAt)}</span>
             <span className="flex min-w-0 flex-1 items-center gap-1">
+              {g.roundLabel && (
+                <span className="shrink-0 rounded px-1 py-px text-[9px] font-bold uppercase tracking-wide text-purple-600 dark:text-purple-400 bg-purple-500/10">
+                  {g.roundLabel}
+                </span>
+              )}
               <span>{getTeamFlag(g.homeTeam)}</span>
               <span className="truncate">{g.homeTeam}</span>
               <span className="shrink-0 font-mono font-semibold tabular-nums">
