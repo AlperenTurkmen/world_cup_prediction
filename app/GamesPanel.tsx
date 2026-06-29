@@ -12,9 +12,20 @@ export interface Match {
   home_goals: number | null;
   away_goals: number | null;
   group_letter?: string | null;
+  is_knockout?: boolean;
 }
 
-function formatKickoff(kickoff_at: string | null, group_letter?: string | null): string {
+function getKnockoutRoundLabel(match_no: number): string {
+  if (match_no >= 73 && match_no <= 88) return "R32";
+  if (match_no >= 89 && match_no <= 96) return "R16";
+  if (match_no >= 97 && match_no <= 100) return "QF";
+  if (match_no >= 101 && match_no <= 102) return "SF";
+  if (match_no === 103) return "3rd Place";
+  if (match_no === 104) return "Final";
+  return "";
+}
+
+function formatKickoff(kickoff_at: string | null, match: Pick<Match, "group_letter" | "is_knockout" | "match_no">): string {
   const parts: string[] = [];
   if (kickoff_at) {
     const d = new Date(kickoff_at);
@@ -27,7 +38,11 @@ function formatKickoff(kickoff_at: string | null, group_letter?: string | null):
       parts.push(` ${String(h).padStart(2, "0")}.${String(m).padStart(2, "0")}`);
     }
   }
-  if (group_letter) parts.push(` Group ${group_letter}`);
+  if (match.is_knockout) {
+    parts.push(` ${getKnockoutRoundLabel(match.match_no)}`);
+  } else if (match.group_letter) {
+    parts.push(` Group ${match.group_letter}`);
+  }
   return parts.join("") || "—";
 }
 
@@ -80,7 +95,10 @@ export default function GamesPanel({ matches }: { matches: Match[] }) {
     setVisibleCount(PAGE_SIZE);
     setLoading(true);
     try {
-      const res = await fetch(`/api/user/followed-predictions?matchId=${match.id}`);
+      const param = match.is_knockout
+        ? `matchNo=${match.match_no}`
+        : `matchId=${match.id}`;
+      const res = await fetch(`/api/user/followed-predictions?${param}`);
       const json = await res.json();
       if (!json.ok) {
         setPredError(json.error ?? "Could not load predictions.");
@@ -99,7 +117,7 @@ export default function GamesPanel({ matches }: { matches: Match[] }) {
   return (
     <div className="rounded-lg border border-black/10 dark:border-white/15 overflow-hidden">
       <div className="px-4 py-3 border-b border-black/10 dark:border-white/15">
-        <h2 className="font-semibold text-sm">Group Stage — All Matches</h2>
+        <h2 className="font-semibold text-sm">All Matches</h2>
         <p className="text-xs opacity-50 mt-0.5">Click a match to see picks</p>
       </div>
 
@@ -117,7 +135,7 @@ export default function GamesPanel({ matches }: { matches: Match[] }) {
                 }`}
               >
                 <span className="opacity-40 shrink-0 tabular-nums text-[10px] w-28">
-                  {formatKickoff(match.kickoff_at, match.group_letter)}
+                  {formatKickoff(match.kickoff_at, match)}
                 </span>
 
                 <span className="flex-1 flex items-center gap-1 min-w-0">

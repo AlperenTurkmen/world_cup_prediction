@@ -78,30 +78,38 @@ export default async function UserProfilePage({ params }: UserPageProps) {
     isFollowing = (count ?? 0) > 0;
   }
 
-  // 6. Fetch user predictions
-  const { data: predictionsData } = await supabase
-    .from("predictions")
-    .select(`
-      pred_home,
-      pred_away,
-      is_score_eligible,
-      matches (
-        id,
-        match_no,
-        home_team,
-        away_team,
-        kickoff_at,
-        home_goals,
-        away_goals,
-        result_logged_at
-      )
-    `)
-    .eq("entry_id", entry.id)
-    .order("match_id", { ascending: true });
+  // 6. Fetch user predictions (group stage + knockout tour), and actual knockout matches
+  const [predictionsRes, tourPredictionsRes, actualKnockoutRes] = await Promise.all([
+    supabase
+      .from("predictions")
+      .select(`
+        pred_home,
+        pred_away,
+        is_score_eligible,
+        matches (
+          id,
+          match_no,
+          home_team,
+          away_team,
+          kickoff_at,
+          home_goals,
+          away_goals,
+          result_logged_at
+        )
+      `)
+      .eq("entry_id", entry.id)
+      .order("match_id", { ascending: true }),
+    supabase
+      .from("round_tour_predictions")
+      .select("match_no, pred_home, pred_away, penalty_winner, updated_at")
+      .eq("entry_id", entry.id),
+    supabase
+      .from("actual_knockout_matches")
+      .select("match_no, home_team, away_team, kickoff_at, home_goals, away_goals, result_logged_at"),
+  ]);
 
-  // Map predictions to a clean structure, ordered chronologically by kickoff
-  // (match_no follows the workbook's order, which is not chronological).
-  const predictions = (predictionsData || [])
+  // Map group predictions to a clean structure
+  const groupPredictions = (predictionsRes.data || [])
     .map((p: any) => ({
       predHome: p.pred_home,
       predAway: p.pred_away,
@@ -114,13 +122,42 @@ export default async function UserProfilePage({ params }: UserPageProps) {
       homeGoals: p.matches?.home_goals,
       awayGoals: p.matches?.away_goals,
       resultLoggedAt: p.matches?.result_logged_at,
-    }))
-    .sort((a, b) => {
-      const ta = a.kickoffAt ? new Date(a.kickoffAt).getTime() : Number.POSITIVE_INFINITY;
-      const tb = b.kickoffAt ? new Date(b.kickoffAt).getTime() : Number.POSITIVE_INFINITY;
-      if (ta !== tb) return ta - tb;
-      return (a.matchNo ?? 0) - (b.matchNo ?? 0);
-    });
+      isKnockout: false as const,
+    }));
+
+  // Map knockout tour predictions, joined with actual knockout matches
+  const actualKnockoutMap = new Map(
+    (actualKnockoutRes.data || []).map((m: any) => [m.match_no, m])
+  );
+  const tourPredictions = (tourPredictionsRes.data || [])
+    .map((p: any) => {
+      const actual = actualKnockoutMap.get(p.match_no);
+      if (!actual) return null;
+      return {
+        predHome: p.pred_home,
+        predAway: p.pred_away,
+        isScoreEligible: true,
+        matchId: null,
+        matchNo: p.match_no,
+        homeTeam: actual.home_team,
+        awayTeam: actual.away_team,
+        kickoffAt: actual.kickoff_at,
+        homeGoals: actual.home_goals,
+        awayGoals: actual.away_goals,
+        resultLoggedAt: actual.result_logged_at,
+        isKnockout: true as const,
+        penaltyWinner: p.penalty_winner ?? null,
+      };
+    })
+    .filter(Boolean);
+
+  // Merge and sort all predictions chronologically
+  const predictions = ([...groupPredictions, ...tourPredictions] as NonNullable<typeof tourPredictions[number]>[]).sort((a, b) => {
+    const ta = a.kickoffAt ? new Date(a.kickoffAt).getTime() : Number.POSITIVE_INFINITY;
+    const tb = b.kickoffAt ? new Date(b.kickoffAt).getTime() : Number.POSITIVE_INFINITY;
+    if (ta !== tb) return ta - tb;
+    return (a.matchNo ?? 0) - (b.matchNo ?? 0);
+  });
 
   // 7. Fetch knockout predictions
   const { data: knockPredictions } = await supabase

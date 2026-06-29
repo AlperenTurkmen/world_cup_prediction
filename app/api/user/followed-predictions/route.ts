@@ -6,11 +6,15 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const matchIdStr = searchParams.get("matchId");
-    const matchId = Number(matchIdStr);
+    const matchNoStr = searchParams.get("matchNo");
 
-    if (!matchIdStr || Number.isNaN(matchId)) {
+    const isKnockout = matchNoStr !== null;
+    const matchId = matchIdStr ? Number(matchIdStr) : null;
+    const matchNo = matchNoStr ? Number(matchNoStr) : null;
+
+    if (isKnockout ? (matchNo === null || Number.isNaN(matchNo)) : (matchId === null || Number.isNaN(matchId))) {
       return NextResponse.json(
-        { ok: false, error: "Invalid matchId parameter." },
+        { ok: false, error: "Invalid match parameter." },
         { status: 400 }
       );
     }
@@ -27,10 +31,15 @@ export async function GET(req: Request) {
       player
         ? supabase.from("follows").select("followed_id").eq("follower_id", player.id)
         : Promise.resolve({ data: [], error: null }),
-      supabase
-        .from("predictions")
-        .select("entry_id, pred_home, pred_away, entries ( username, is_hidden )")
-        .eq("match_id", matchId),
+      isKnockout
+        ? supabase
+            .from("round_tour_predictions")
+            .select("entry_id, pred_home, pred_away, penalty_winner, entries ( username, is_hidden )")
+            .eq("match_no", matchNo!)
+        : supabase
+            .from("predictions")
+            .select("entry_id, pred_home, pred_away, entries ( username, is_hidden )")
+            .eq("match_id", matchId!),
     ]);
 
     if (followsRes.error) {

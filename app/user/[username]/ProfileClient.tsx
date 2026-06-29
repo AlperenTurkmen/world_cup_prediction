@@ -9,11 +9,21 @@ import { MAX_USERNAME_LEN } from "@/lib/manualEntry";
 
 const MAX_USERNAME_CHANGES = 3;
 
+function getKnockoutRoundLabel(matchNo: number): string {
+  if (matchNo >= 73 && matchNo <= 88) return "R32";
+  if (matchNo >= 89 && matchNo <= 96) return "R16";
+  if (matchNo >= 97 && matchNo <= 100) return "QF";
+  if (matchNo >= 101 && matchNo <= 102) return "SF";
+  if (matchNo === 103) return "3rd";
+  if (matchNo === 104) return "Final";
+  return "";
+}
+
 interface MatchPrediction {
   predHome: number;
   predAway: number;
   isScoreEligible: boolean;
-  matchId: number;
+  matchId: number | null;
   matchNo: number;
   homeTeam: string;
   awayTeam: string;
@@ -21,6 +31,8 @@ interface MatchPrediction {
   homeGoals: number | null;
   awayGoals: number | null;
   resultLoggedAt: string | null;
+  isKnockout?: boolean;
+  penaltyWinner?: string | null;
 }
 
 interface KnockPrediction {
@@ -418,7 +430,7 @@ export default function ProfileClient({
                 : "border-transparent text-foreground/50 hover:text-foreground"
             }`}
           >
-            {tab === "group" ? "Group Predictions" : tab === "knockout" ? "Knockout Bracket" : tab}
+            {tab === "group" ? "Predictions" : tab === "knockout" ? "Knockout Bracket" : tab}
           </button>
         ))}
       </div>
@@ -518,15 +530,15 @@ export default function ProfileClient({
           </div>
         )}
 
-        {/* TAB 2: GROUP PREDICTIONS */}
+        {/* TAB 2: ALL PREDICTIONS (group + knockout tour) */}
         {activeTab === "group" && (
           <div className="space-y-4">
             {/* Filter buttons */}
             <div className="flex flex-wrap gap-2">
               {[
-                { id: "all", label: "All Predictions" },
-                { id: "exact", label: "Exact Score (+3)" },
-                { id: "outcome", label: "Outcome Only (+1/2)" },
+                { id: "all", label: "All" },
+                { id: "exact", label: "Exact Score" },
+                { id: "outcome", label: "Outcome Only" },
                 { id: "incorrect", label: "Incorrect" },
                 { id: "pending", label: "Unplayed" },
               ].map((btn) => (
@@ -565,7 +577,7 @@ export default function ProfileClient({
 
                       return (
                         <tr
-                          key={pred.matchId}
+                          key={`${pred.isKnockout ? "ko" : "g"}-${pred.matchNo}`}
                           onClick={() => setSelectedMatch(pred)}
                           className="border-b border-black/5 last:border-0 hover:bg-black/[0.02] dark:border-white/5 dark:hover:bg-white/[0.02] cursor-pointer transition-colors"
                         >
@@ -574,6 +586,11 @@ export default function ProfileClient({
                           </td>
                           <td className="p-2.5 sm:p-3">
                             <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                              {pred.isKnockout && (
+                                <span className="text-[9px] font-bold uppercase tracking-wide text-purple-600 dark:text-purple-400 bg-purple-500/10 rounded px-1 py-0.5 mr-0.5">
+                                  {getKnockoutRoundLabel(pred.matchNo)}
+                                </span>
+                              )}
                               <span>{getTeamFlag(pred.homeTeam)}</span>
                               <span className="font-semibold">{pred.homeTeam}</span>
                               <span className="text-foreground/40 font-normal">vs</span>

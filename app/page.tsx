@@ -30,7 +30,7 @@ async function getPageData(): Promise<PageData> {
   try {
     const supabase = getSupabaseAdmin();
 
-    const [board, results, matchesRes, teamGroupsRes, scoringRes, roundsRes] = await Promise.all([
+    const [board, results, matchesRes, knockoutMatchesRes, teamGroupsRes, scoringRes, roundsRes] = await Promise.all([
       supabase
         .from("leaderboard")
         .select("*")
@@ -47,6 +47,10 @@ async function getPageData(): Promise<PageData> {
         .from("matches")
         .select("id, match_no, home_team, away_team, kickoff_at, home_goals, away_goals")
         .order("kickoff_at", { ascending: true, nullsFirst: false })
+        .order("match_no", { ascending: true }),
+      supabase
+        .from("actual_knockout_matches")
+        .select("match_no, home_team, away_team, kickoff_at, home_goals, away_goals")
         .order("match_no", { ascending: true }),
       supabase
         .from("team_groups")
@@ -70,10 +74,36 @@ async function getPageData(): Promise<PageData> {
     const groupByTeam = new Map(
       (teamGroupsRes.data ?? []).map((r) => [r.team, r.group_letter as string])
     );
-    const matches = (matchesRes.data ?? []).map((m) => ({
+    const groupMatches = (matchesRes.data ?? []).map((m) => ({
       ...m,
       group_letter: groupByTeam.get(m.home_team) ?? null,
-    })) as Match[];
+      is_knockout: false,
+    }));
+    const knockoutMatches = (knockoutMatchesRes.data ?? [])
+      .filter((m) => m.home_team && m.away_team)
+      .map((m) => ({
+        id: m.match_no + 100000,
+        match_no: m.match_no,
+        home_team: m.home_team!,
+        away_team: m.away_team!,
+        kickoff_at: m.kickoff_at,
+        home_goals: m.home_goals,
+        away_goals: m.away_goals,
+        group_letter: null,
+        is_knockout: true,
+      }));
+    const matches = [
+      ...groupMatches,
+      ...knockoutMatches,
+    ].sort((a, b) => {
+      if (!a.kickoff_at && !b.kickoff_at) return a.match_no - b.match_no;
+      if (!a.kickoff_at) return 1;
+      if (!b.kickoff_at) return -1;
+      const ta = new Date(a.kickoff_at).getTime();
+      const tb = new Date(b.kickoff_at).getTime();
+      if (ta !== tb) return ta - tb;
+      return a.match_no - b.match_no;
+    }) as Match[];
 
     // Merge live weights over the defaults so the guide always matches the view.
     const scoringWeights = { ...DEFAULT_SCORING_WEIGHTS };
