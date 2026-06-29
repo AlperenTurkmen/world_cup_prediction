@@ -19,6 +19,7 @@ import Advancers from "./Advancers";
 import Moderation from "./Moderation";
 import GlobalStart from "./GlobalStart";
 import PredictionValidity from "./PredictionValidity";
+import TourPredictionsAdmin from "./TourPredictionsAdmin";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +81,7 @@ export default async function AdminPage() {
           <GroupResults matches={matches} />
           <KnockoutResults matches={knockoutMatches ?? []} teams={teams ?? []} />
           <Advancers teams={teams ?? []} initial={advancers!} />
+          <TourPredictionsAdmin entries={entries ?? []} knockoutMatches={knockoutMatches ?? []} />
         </div>
       )}
     </main>
