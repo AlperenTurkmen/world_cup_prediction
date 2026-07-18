@@ -126,8 +126,8 @@ function readGroupFixtures(): {
         away_team: String(away).trim(),
         kickoff_at: serialToIso(get(r, 4)), // E = local host time
       });
-    } else if (matchNo >= 73 && matchNo <= 104 && matchNo !== 103) {
-      // Scored knockout matches (73–102, 104; third-place 103 excluded): only the
+    } else if (matchNo >= 73 && matchNo <= 104) {
+      // Knockout matches (73–104, incl. the third-place playoff 103): only the
       // kickoff is known up front, used for prediction eligibility.
       knockoutKickoffs.push({ match_no: matchNo, kickoff_at: serialToIso(get(r, 4)) });
     }

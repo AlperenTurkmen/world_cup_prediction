@@ -36,24 +36,31 @@ import {
 } from "./deriveBracket";
 import { KO_SLOT_DEFS } from "./bracketData";
 import { ADV_ROUNDS, type AdvRound } from "./rounds";
-import type { NormalizedMatch } from "./footballData";
+import type { ApiWinner, NormalizedMatch } from "./footballData";
 import { resolveCanonical } from "./teamNameMap";
 
-/** football-data.org knockout stage → our advancement round. */
-const STAGE_TO_ROUND: Record<string, AdvRound> = {
+/** A knockout round as the bracket sees it: the advancement rounds + the
+ *  third-place playoff (match 103), which is scored as a tour game but never
+ *  feeds advancement. */
+type KoRound = AdvRound | "THIRD";
+
+/** football-data.org knockout stage → our knockout round. */
+const STAGE_TO_ROUND: Record<string, KoRound> = {
   LAST_32: "R32",
   LAST_16: "R16",
   QUARTER_FINALS: "QF",
   SEMI_FINALS: "SF",
+  THIRD_PLACE: "THIRD",
   FINAL: "FINAL",
 };
 
-/** Each scored knockout slot's round (third-place playoff 103 is excluded). */
-function roundOfSlot(no: number): AdvRound | null {
+/** Each knockout slot's round (73–104; 103 is the third-place playoff). */
+function roundOfSlot(no: number): KoRound | null {
   if (no >= 73 && no <= 88) return "R32";
   if (no >= 89 && no <= 96) return "R16";
   if (no >= 97 && no <= 100) return "QF";
   if (no === 101 || no === 102) return "SF";
+  if (no === 103) return "THIRD";
   if (no === 104) return "FINAL";
   return null;
 }
@@ -115,40 +122,45 @@ export function deriveActualKnockout(
   }
 
   // Index the API knockout fixtures by round, and collect the teams that reached
-  // each round (a team appearing in a round's fixtures advanced into it).
+  // each round (a team appearing in a round's fixtures advanced into it — the
+  // third-place playoff is not an advancement, so it doesn't feed `reached`).
   interface ApiFix {
     home: string | null;
     away: string | null;
     homeGoals: number | null;
     awayGoals: number | null;
+    winner: ApiWinner;
     kickoff: string | null;
   }
-  const byRound = new Map<AdvRound, ApiFix[]>();
+  const byRound = new Map<KoRound, ApiFix[]>();
   const reached = new Map<AdvRound, Set<string>>();
   for (const r of ADV_ROUNDS) reached.set(r, new Set<string>());
 
   for (const m of apiMatches) {
     const round = STAGE_TO_ROUND[m.stage];
-    if (!round) continue; // group stage + THIRD_PLACE/unknown ignored
+    if (!round) continue; // group stage + unknown stages ignored
     const home = resolveCanonical(m.homeApi, canonical);
     const away = resolveCanonical(m.awayApi, canonical);
-    if (home) reached.get(round)!.add(home);
-    if (away) reached.get(round)!.add(away);
+    if (round !== "THIRD") {
+      if (home) reached.get(round)!.add(home);
+      if (away) reached.get(round)!.add(away);
+    }
     if (round === "FINAL" && m.status === "FINISHED") {
       const champ = m.winner === "HOME_TEAM" ? home : m.winner === "AWAY_TEAM" ? away : null;
       if (champ) reached.get("CHAMPION")!.add(champ);
     }
     if (!byRound.has(round)) byRound.set(round, []);
-    byRound.get(round)!.push({ home, away, homeGoals: m.homeGoals, awayGoals: m.awayGoals, kickoff: m.kickoff });
+    byRound.get(round)!.push({ home, away, homeGoals: m.homeGoals, awayGoals: m.awayGoals, winner: m.winner, kickoff: m.kickoff });
   }
 
   const winners = new Map<number, string>(); // slot match_no → advancing team
+  const losers = new Map<number, string>(); // slot match_no → losing team (feeds RU specs)
   const writes: ActualKnockoutWrite[] = [];
   const written = new Set<number>();
 
   const resolveSpec = (spec: string): string | null => {
+    if (spec.startsWith("RU")) return losers.get(Number(spec.slice(2))) ?? null; // 103: SF losers
     if (spec.startsWith("W")) return winners.get(Number(spec.slice(1))) ?? null;
-    if (spec.startsWith("RU")) return null; // only the 3rd-place playoff (103) uses RU; skipped
     return r32Slots.get(spec) ?? null;
   };
 
@@ -161,28 +173,35 @@ export function deriveActualKnockout(
   const pairKey = (a: string, b: string) => [a, b].sort().join("|");
 
   /** Find the API fixture for a matchup (team pair, either orientation). */
-  const findFix = (round: AdvRound, home: string, away: string) =>
+  const findFix = (round: KoRound, home: string, away: string) =>
     (byRound.get(round) ?? []).find(
       (f) => (f.home === home && f.away === away) || (f.home === away && f.away === home),
     );
 
-  /** Record a resolved slot: orient the API scoreline + decide the advancing team. */
-  const emit = (no: number, round: AdvRound, home: string, away: string, fix: ApiFix) => {
+  /** Record a resolved slot: orient the API scoreline + decide the winning team. */
+  const emit = (no: number, round: KoRound, home: string, away: string, fix: ApiFix) => {
     let homeGoals: number | null = null;
     let awayGoals: number | null = null;
     if (fix.homeGoals !== null && fix.awayGoals !== null) {
       [homeGoals, awayGoals] =
         fix.home === home ? [fix.homeGoals, fix.awayGoals] : [fix.awayGoals, fix.homeGoals];
     }
-    // Winner: decisive scoreline, else the team that advanced (handles penalties).
+    // Winner: decisive scoreline; else the API's stated winner (covers penalty
+    // shoot-outs, incl. the third-place playoff which has no "next round"); else
+    // the team that advanced into the next round.
     let winner: string | null = null;
     if (homeGoals !== null && awayGoals !== null && homeGoals !== awayGoals) {
       winner = homeGoals > awayGoals ? home : away;
-    } else {
+    } else if (fix.winner === "HOME_TEAM" || fix.winner === "AWAY_TEAM") {
+      winner = fix.winner === "HOME_TEAM" ? fix.home : fix.away;
+    } else if (round !== "THIRD") {
       const next = reached.get(NEXT_ROUND[round])!;
       winner = next.has(home) ? home : next.has(away) ? away : null;
     }
-    if (winner) winners.set(no, winner);
+    if (winner) {
+      winners.set(no, winner);
+      losers.set(no, winner === home ? away : home);
+    }
     const penaltyWinner =
       homeGoals !== null && awayGoals !== null && homeGoals === awayGoals ? winner : null;
     writes.push({ match_no: no, home_team: home, away_team: away, home_goals: homeGoals, away_goals: awayGoals, penalty_winner: penaltyWinner, kickoff: fix.kickoff });
@@ -242,12 +261,12 @@ export function deriveActualKnockout(
     }
   }
 
-  // ── Phase 3: R16 → Final, in order. Each slot's feeders (W<match>) are now
-  //    resolved (phases 1–2 set the R32 winners), and deeper matchups don't
-  //    diverge — they're determined purely by who won, which the API states
-  //    unambiguously. Ascending order guarantees feeders resolve before dependents.
+  // ── Phase 3: R16 → Final, in order. Each slot's feeders (W<match> — or, for
+  //    the third-place playoff 103, RU<semi>) are now resolved (phases 1–2 set
+  //    the R32 winners), and deeper matchups don't diverge — they're determined
+  //    purely by who won, which the API states unambiguously. Ascending order
+  //    guarantees feeders resolve before dependents.
   for (let no = 89; no <= 104; no++) {
-    if (no === 103) continue;
     const round = roundOfSlot(no)!;
     const def = KO_SLOT_DEFS[no];
     const home = resolveSpec(def.home);

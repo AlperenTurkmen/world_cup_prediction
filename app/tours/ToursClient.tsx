@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AdvRound } from "@/lib/rounds";
+import type { TourRoundId } from "@/lib/tours";
 
 const RAIL = [0, 1, 2, 3, 4, 5];
 
@@ -18,7 +18,7 @@ interface TourMatch {
   editable: boolean;
 }
 interface TourRound {
-  round: AdvRound;
+  round: TourRoundId;
   label: string;
   deadline: string | null;
   status: "pending" | "open" | "locked";
@@ -29,7 +29,7 @@ type Draft = { h?: number; a?: number; pen?: string };
 export default function ToursClient({ username }: { username: string }) {
   const [rounds, setRounds] = useState<TourRound[] | null>(null);
   const [drafts, setDrafts] = useState<Record<number, Draft>>({});
-  const [selected, setSelected] = useState<AdvRound | null>(null);
+  const [selected, setSelected] = useState<TourRoundId | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 

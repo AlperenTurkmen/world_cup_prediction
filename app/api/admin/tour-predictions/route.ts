@@ -19,6 +19,7 @@ function knockoutRoundMatchNos(matchNo: number): number[] {
   if (matchNo >= 89 && matchNo <= 96) return Array.from({ length: 8 }, (_, i) => 89 + i);
   if (matchNo >= 97 && matchNo <= 100) return [97, 98, 99, 100];
   if (matchNo >= 101 && matchNo <= 102) return [101, 102];
+  if (matchNo === 103) return [103]; // third-place playoff: a one-game round
   if (matchNo === 104) return [104];
   return [];
 }
@@ -62,7 +63,7 @@ export async function POST(req: Request) {
   if (!Number.isInteger(entryId) || (entryId as number) <= 0) {
     return NextResponse.json({ ok: false, error: "Invalid entryId." }, { status: 400 });
   }
-  if (!Number.isInteger(matchNo) || (matchNo as number) < 73 || (matchNo as number) > 104 || matchNo === 103) {
+  if (!Number.isInteger(matchNo) || (matchNo as number) < 73 || (matchNo as number) > 104) {
     return NextResponse.json({ ok: false, error: "Invalid matchNo." }, { status: 400 });
   }
   if (!Number.isInteger(predHome) || (predHome as number) < 0 || !Number.isInteger(predAway) || (predAway as number) < 0) {

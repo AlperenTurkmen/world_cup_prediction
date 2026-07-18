@@ -40,6 +40,8 @@ export type ApiStatus =
 
 export type ApiWinner = "HOME_TEAM" | "AWAY_TEAM" | "DRAW" | null;
 
+type RawScorePair = { home?: number | null; away?: number | null } | null;
+
 /** The slice of football-data.org's match object we depend on. */
 interface RawMatch {
   stage?: string;
@@ -49,7 +51,19 @@ interface RawMatch {
   awayTeam?: { name?: string | null } | null;
   score?: {
     winner?: ApiWinner;
-    fullTime?: { home?: number | null; away?: number | null } | null;
+    /** How the match was decided: REGULAR | EXTRA_TIME | PENALTY_SHOOTOUT. */
+    duration?: string | null;
+    /**
+     * The final score. Cumulative through extra time — but for a shoot-out it
+     * ALSO includes the penalty goals, so it can't be stored as-is then.
+     */
+    fullTime?: RawScorePair;
+    /** 90-minute score (only present when the match went beyond regulation). */
+    regularTime?: RawScorePair;
+    /** Goals scored in the extra-time period ONLY (not cumulative). */
+    extraTime?: RawScorePair;
+    /** Shoot-out goals only. */
+    penalties?: RawScorePair;
   } | null;
 }
 
@@ -98,19 +112,57 @@ export async function fetchWorldCupTeamNames(): Promise<string[]> {
     .filter((n) => n.length > 0);
 }
 
+function num(v: number | null | undefined): number | null {
+  return typeof v === "number" ? v : null;
+}
+
+/**
+ * The match score (through extra time, excluding any shoot-out), or nulls.
+ *
+ * `fullTime` is the final cumulative score for REGULAR and EXTRA_TIME matches,
+ * but for a PENALTY_SHOOTOUT it also counts the penalty goals (e.g. a 1-1 game
+ * decided 4-3 on penalties arrives as fullTime 5-4). For those we rebuild the
+ * 120-minute score from regularTime + extraTime (period scores), falling back
+ * to fullTime − penalties.
+ */
+function matchScore(score: RawMatch["score"]): { home: number | null; away: number | null } {
+  const ft = score?.fullTime ?? null;
+  let home = num(ft?.home);
+  let away = num(ft?.away);
+  if (score?.duration === "PENALTY_SHOOTOUT") {
+    const rtH = num(score.regularTime?.home);
+    const rtA = num(score.regularTime?.away);
+    const etH = num(score.extraTime?.home);
+    const etA = num(score.extraTime?.away);
+    const penH = num(score.penalties?.home);
+    const penA = num(score.penalties?.away);
+    if (rtH !== null && rtA !== null && etH !== null && etA !== null) {
+      home = rtH + etH;
+      away = rtA + etA;
+    } else if (home !== null && away !== null && penH !== null && penA !== null) {
+      home -= penH;
+      away -= penA;
+    } else {
+      home = null;
+      away = null;
+    }
+  }
+  return { home, away };
+}
+
 /** Pure: flatten raw API matches to NormalizedMatch[]. Exported for tests. */
 export function normalizeMatches(raw: RawMatch[]): NormalizedMatch[] {
   return raw.map((m) => {
-    const ft = m.score?.fullTime ?? null;
     const homeApi = typeof m.homeTeam?.name === "string" ? m.homeTeam.name.trim() : null;
     const awayApi = typeof m.awayTeam?.name === "string" ? m.awayTeam.name.trim() : null;
+    const { home, away } = matchScore(m.score ?? null);
     return {
       stage: (m.stage ?? "") as ApiStage,
       status: (m.status ?? "") as ApiStatus,
       homeApi: homeApi || null,
       awayApi: awayApi || null,
-      homeGoals: typeof ft?.home === "number" ? ft.home : null,
-      awayGoals: typeof ft?.away === "number" ? ft.away : null,
+      homeGoals: home,
+      awayGoals: away,
       winner: (m.score?.winner ?? null) as ApiWinner,
       kickoff: typeof m.utcDate === "string" && m.utcDate ? m.utcDate : null,
     };

@@ -1,7 +1,7 @@
 /**
  * POST /api/admin/knockout-result — set (or clear) one knockout match's actual
  * matchup, scoreline, and penalty-shootout winner (actual_knockout_matches,
- * matches 73–102 and 104; never 103). The manual override for what the
+ * matches 73–104, incl. the third-place playoff). The manual override for what the
  * football-data sync writes automatically — used to fix a tie-break-divergent
  * matchup or correct a result.
  *
@@ -19,8 +19,8 @@ import { getCanonicalTeams } from "@/lib/adminData";
 export const runtime = "nodejs";
 
 const MAX_GOALS = 99;
-/** Scored knockout slots: 73–102 and 104 (the 3rd-place playoff 103 is excluded). */
-const VALID_SLOT = (n: number) => Number.isInteger(n) && n >= 73 && n <= 104 && n !== 103;
+/** Scored knockout slots: 73–104 (incl. the 3rd-place playoff, 103). */
+const VALID_SLOT = (n: number) => Number.isInteger(n) && n >= 73 && n <= 104;
 
 function parseGoal(v: unknown): number | null | undefined {
   if (v === null || v === "" || v === undefined) return null;
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
   const matchNo = Number(body.match_no);
   if (!VALID_SLOT(matchNo)) {
     return NextResponse.json(
-      { ok: false, error: "match_no must be a knockout match (73–102 or 104)." },
+      { ok: false, error: "match_no must be a knockout match (73–104)." },
       { status: 400 },
     );
   }

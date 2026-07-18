@@ -106,12 +106,13 @@ export async function GET(req: Request) {
     );
 
     // Per-round first kickoff (used as the tour deadline fairness gate).
-    // Match_no ranges: R32=73-88, R16=89-96, QF=97-100, SF=101-102, Final=104.
+    // Match_no ranges: R32=73-88, R16=89-96, QF=97-100, SF=101-102, 3rd=103, Final=104.
     function knockoutRoundKey(matchNo: number): string {
       if (matchNo >= 73 && matchNo <= 88) return "R32";
       if (matchNo >= 89 && matchNo <= 96) return "R16";
       if (matchNo >= 97 && matchNo <= 100) return "QF";
       if (matchNo >= 101 && matchNo <= 102) return "SF";
+      if (matchNo === 103) return "3rd";
       if (matchNo === 104) return "Final";
       return "other";
     }
@@ -170,12 +171,11 @@ export async function GET(req: Request) {
         };
       });
 
-    // Knockout tour games (dimension F). Match 103 (3rd place) is excluded.
+    // Knockout tour games (dimension F), incl. the third-place playoff (103).
     const tourGames = (tourPredsRes.data ?? [])
       .map((p: any) => {
         const m = koMatchMap.get(p.match_no);
         if (!m || m.home_goals === null || m.away_goals === null) return null;
-        if (p.match_no === 103) return null; // 3rd-place not in tour
         // Fairness gate: pick must have been submitted before the round's first kickoff.
         const rk = knockoutRoundKey(p.match_no);
         const deadline = roundFirstKickoff.get(rk);

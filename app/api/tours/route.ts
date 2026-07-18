@@ -16,19 +16,19 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { getCurrentPlayer } from "@/lib/playerAuth";
-import { ADV_ROUNDS, type AdvRound } from "@/lib/rounds";
 import {
   buildTourState,
   sanitizeTourPicks,
   TOUR_ROUNDS,
   type ActualKoRow,
   type TourPick,
+  type TourRoundId,
 } from "@/lib/tours";
 
 export const runtime = "nodejs";
 
-/** Rounds that have a tour (everything but CHAMPION, which is the final's winner). */
-const TOUR_ROUND_SET = new Set<AdvRound>(TOUR_ROUNDS.map((r) => r.round));
+/** Rounds that have a tour (incl. THIRD; never CHAMPION, which is the final's winner). */
+const TOUR_ROUND_SET = new Set<TourRoundId>(TOUR_ROUNDS.map((r) => r.round));
 
 const KO_COLUMNS = "match_no, home_team, away_team, kickoff_at, home_goals, away_goals, penalty_winner";
 
@@ -75,8 +75,8 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: false, error: "Expected a JSON body." }, { status: 400 });
   }
   const raw = (body ?? {}) as Record<string, unknown>;
-  const round = raw.round as AdvRound;
-  if (!ADV_ROUNDS.includes(round) || !TOUR_ROUND_SET.has(round)) {
+  const round = raw.round as TourRoundId;
+  if (!TOUR_ROUND_SET.has(round)) {
     return NextResponse.json({ ok: false, error: "Unknown knockout round." }, { status: 400 });
   }
 

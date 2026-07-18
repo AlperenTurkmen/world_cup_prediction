@@ -162,7 +162,8 @@ create table if not exists knockout_predictions (
 -- 3c. round_tour_predictions — the per-round "second tour" knockout scorelines.
 --     After the group stage, the real bracket is known, so each knockout round
 --     opens a fresh prediction window: users predict the ACTUAL matchup of every
---     game in that round (matches 73–102, 104), editable until the round's first
+--     game in that round (matches 73–104, incl. the third-place playoff 103,
+--     which is its own one-game round), editable until the round's first
 --     kickoff. Unlike knockout_predictions (each entry's OWN predicted bracket),
 --     here the matchup is fixed/known, so only the scoreline is stored — the two
 --     teams come from actual_knockout_matches by match_no. penalty_winner is set
@@ -568,16 +569,18 @@ knockout_raw as (
   group by e.id
 ),
 -- ── Knockout helpers: each scored knockout match's round, and each round's
---    first kickoff (the per-round tour deadline). Match 103 (3rd place) excluded.
+--    first kickoff (the per-round tour deadline). The third-place playoff (103)
+--    is its own one-game round, THIRD, so it locks on its own kickoff. THIRD has
+--    no round_weights row, so it stays out of advancement + foresight scoring.
 ko_match_round as (
   select n as match_no,
          case when n between 73 and 88   then 'R32'
               when n between 89 and 96   then 'R16'
               when n between 97 and 100  then 'QF'
               when n between 101 and 102 then 'SF'
+              when n = 103               then 'THIRD'
               when n = 104               then 'FINAL' end as round
   from generate_series(73, 104) as n
-  where n <> 103
 ),
 ko_round_deadline as (
   select mr.round, min(akm.kickoff_at) as first_kickoff
@@ -592,7 +595,8 @@ ko_round_deadline as (
 --    scoreline of a real knockout game — foreseen blind, back when the bracket
 --    was uploaded — it earns that round's advancement weight as a bonus
 --    (R32 +1, R16 +2, QF +4, SF +6, FINAL +8). is_score_eligible guarantees the
---    bracket predates the game. Never gated by the league cutoff; 103 excluded.
+--    bracket predates the game. Never gated by the league cutoff; 103 never
+--    scores here (no bracket scoreline is stored for it, and THIRD has no weight).
 foresight_raw as (
   select e.id as entry_id,
     coalesce(sum(case when akm.home_goals is not null and akm.away_goals is not null
@@ -613,7 +617,8 @@ foresight_raw as (
 --    actual knockout result. Fairness: a pick counts only if it was last edited
 --    before its round's first kickoff (predicted blind). The matchup is implicit
 --    (actual_knockout_matches by match_no), so no matchup-equality test is
---    needed. Never gated by the league cutoff. 103 is not a tour game.
+--    needed. Never gated by the league cutoff. Includes the third-place playoff
+--    (103), which scores flat max 8 like every other tour game.
 round_tour_raw as (
   select e.id as entry_id,
     coalesce(sum(case when akm.home_goals is not null and akm.away_goals is not null

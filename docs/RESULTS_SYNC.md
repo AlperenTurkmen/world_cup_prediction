@@ -57,13 +57,21 @@ football-data.org ──fetch──▶ normalize ──▶ syncResults (pure dif
   `SEMI_FINALS`→SF, `FINAL`→FINAL): a team that *appears* in a stage's fixtures
   "reached" that round. The full set per round is written via
   `replace_actual_advancers` (idempotent). `CHAMPION` = the winner of the
-  `FINISHED` final. `THIRD_PLACE` is intentionally ignored.
+  `FINISHED` final. `THIRD_PLACE` never feeds advancers (both teams already
+  counted as semi-finalists), but it *is* mapped onto slot 103 below.
 
 - **Knockout matchups + scorelines** (`actual_knockout_matches`, matches 73–104):
   once the group stage is complete, `lib/actualBracket.deriveActualKnockout()`
   reuses `deriveBracket` on the **real** group results to fix the R32 slots, then
   maps the API's knockout fixtures (team pair → score → winner) onto slots 73–104,
-  round by round. The sync writes each **corroborated** slot's matchup (always) and
+  round by round — including the third-place playoff (slot 103, home = loser of
+  SF 101, away = loser of SF 102, from the `THIRD_PLACE` stage). Scores are the
+  **120-minute** score: `fullTime` is used as-is for regular/extra-time results,
+  but for a shoot-out the API's `fullTime` *includes the penalty goals*, so
+  `normalizeMatches` rebuilds the real score from `regularTime + extraTime`
+  (fallback: `fullTime − penalties`); the shoot-out winner comes from the API's
+  `winner` field. The sync writes each **corroborated** slot's matchup (upserted,
+  since slot 103 has no seeded row) and
   its scoreline once the game finishes (with the null-guard, so a manually-entered
   knockout result is never overwritten). It deliberately **skips** any slot the API
   doesn't corroborate — e.g. a fair-play tie-break put a different team in that slot

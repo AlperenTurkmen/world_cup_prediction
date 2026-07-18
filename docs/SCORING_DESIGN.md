@@ -317,7 +317,7 @@ Against the sample file (`WCup_2026_4.2.7_en.xlsx`, champion "Spain"):
 | Tie in standings (same Pts/GD/GF) | Broken by team name (deterministic). Affects predicted and actual identically. |
 | Head-to-head differs from GD order | Accepted simplification (§4); documented, not implemented. |
 | Team predicted deep but eliminated early | Keeps all points for rounds it *did* reach (progressive, no clawback). |
-| 3rd-place playoff (match 103) | Not separately scored — both teams already counted as semi-finalists; loser of a SF is still an SF advancer. (Unchanged.) |
+| 3rd-place playoff (match 103) | No advancement/foresight points — both teams already counted as semi-finalists; loser of a SF is still an SF advancer. It **is** a knockout-tour game (dimension F, flat max 8) in its own one-game round, `THIRD`, locking at its own kickoff — independent of the final's deadline. |
 | Champion wrong | 0 for `CHAMPION`; the team still earns its R32…FINAL advancement points if it got that far. |
 | Re-scoring after a correction | View is computed live — editing a result instantly re-scores everyone, no backfill. (Unchanged.) |
 

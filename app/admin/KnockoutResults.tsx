@@ -5,12 +5,13 @@ import type { ActualKnockoutRow } from "@/lib/adminData";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
-/** Scored knockout slots grouped by round (3rd-place playoff 103 excluded). */
+/** Scored knockout slots grouped by round (incl. the 3rd-place playoff, 103). */
 const ROUNDS: { label: string; matches: number[] }[] = [
   { label: "Round of 32", matches: Array.from({ length: 16 }, (_, i) => 73 + i) },
   { label: "Round of 16", matches: Array.from({ length: 8 }, (_, i) => 89 + i) },
   { label: "Quarter-finals", matches: [97, 98, 99, 100] },
   { label: "Semi-finals", matches: [101, 102] },
+  { label: "Third place", matches: [103] },
   { label: "Final", matches: [104] },
 ];
 

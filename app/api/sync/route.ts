@@ -130,15 +130,17 @@ export async function POST(req: Request) {
       for (const w of writes) {
         // (Re)set the corroborated matchup, and correct the kickoff to the API's
         // real schedule when known (the seeded workbook time is only a fallback).
+        // Upsert, not update: the third-place playoff (103) was never seeded, so
+        // its row is created here the first time the semi-final losers are known.
         const matchupUpdate: Record<string, unknown> = {
+          match_no: w.match_no,
           home_team: w.home_team,
           away_team: w.away_team,
         };
         if (w.kickoff) matchupUpdate.kickoff_at = w.kickoff;
         const { error: tErr } = await supabase
           .from("actual_knockout_matches")
-          .update(matchupUpdate)
-          .eq("match_no", w.match_no);
+          .upsert(matchupUpdate, { onConflict: "match_no" });
         if (tErr) throw tErr;
         // Log the scoreline once it exists, never overwriting a logged result.
         if (w.home_goals !== null && w.away_goals !== null) {

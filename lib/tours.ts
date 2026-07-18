@@ -13,13 +13,26 @@
  * sanitizer. Round structure (which match numbers belong to each round) is reused
  * from lib/deriveBracket so there is one source of truth.
  */
-import { KNOCKOUT_ROUNDS, PICKABLE_KO_MATCHES } from "./deriveBracket";
+import { KNOCKOUT_ROUNDS } from "./deriveBracket";
 import type { AdvRound } from "./rounds";
 
 export const MAX_TOUR_GOALS = 20;
 
-/** Round → its scored match numbers and a display label (R32..FINAL; no 103). */
-export const TOUR_ROUNDS = KNOCKOUT_ROUNDS;
+/**
+ * A tour round: the advancement rounds plus THIRD — the third-place playoff
+ * (match 103), which is a predictable tour game but never feeds advancement.
+ */
+export type TourRoundId = AdvRound | "THIRD";
+
+/** Round → its scored match numbers and a display label, in play order.
+ *  Extends the bracket's advancement rounds with the third-place playoff,
+ *  which sits between the semi-finals and the final and locks on its own
+ *  kickoff (it's a one-game round). */
+export const TOUR_ROUNDS: Array<{ round: TourRoundId; label: string; matches: number[] }> = [
+  ...KNOCKOUT_ROUNDS.filter((r) => r.round !== "FINAL"),
+  { round: "THIRD", label: "Third place", matches: [103] },
+  ...KNOCKOUT_ROUNDS.filter((r) => r.round === "FINAL"),
+];
 
 /** An actual_knockout_matches row (matchup + kickoff + result), as the API reads it. */
 export interface ActualKoRow {
@@ -65,7 +78,7 @@ export interface TourMatch {
 export type TourRoundStatus = "pending" | "open" | "locked";
 
 export interface TourRoundState {
-  round: AdvRound;
+  round: TourRoundId;
   label: string;
   /** ISO of the round's first kickoff (the deadline), or null if unseeded. */
   deadline: string | null;
@@ -73,10 +86,10 @@ export interface TourRoundState {
   matches: TourMatch[];
 }
 
-const PICKABLE = new Set(PICKABLE_KO_MATCHES);
+const PICKABLE = new Set(TOUR_ROUNDS.flatMap((r) => r.matches));
 
-/** The round a scored knockout match belongs to (null for 103 / non-knockout). */
-export function roundOfMatch(matchNo: number): AdvRound | null {
+/** The tour round a knockout match belongs to (null for non-knockout). */
+export function roundOfMatch(matchNo: number): TourRoundId | null {
   for (const r of TOUR_ROUNDS) if (r.matches.includes(matchNo)) return r.round;
   return null;
 }
@@ -154,7 +167,7 @@ function isGoal(v: unknown): v is number {
  * penalty winner that is one of the two actual teams; a decisive score drops it.
  */
 export function sanitizeTourPicks(
-  round: AdvRound,
+  round: TourRoundId,
   raw: unknown,
   matchupOf: Map<number, { home: string; away: string }>,
 ): { picks: CleanTourPick[]; error: string | null } {

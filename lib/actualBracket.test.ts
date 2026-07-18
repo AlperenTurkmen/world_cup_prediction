@@ -140,6 +140,59 @@ test("exactly reconstructs a self-consistent bracket (matchups, oriented scores,
   assert.ok(m73.penalty_winner && [m73.home_team, m73.away_team].includes(m73.penalty_winner));
 });
 
+test("resolves the third-place playoff (103) from the semi-final losers, incl. a shoot-out", () => {
+  const buf = loadWorkbook();
+  const { parsed, fixtures, scores } = buildFixtures(buf);
+  const canonical = new Set(parsed.canonicalTeams);
+
+  // Same deterministic bracket as the exact-reconstruction test above.
+  const koScores: KnockoutScores = {};
+  for (const round of KNOCKOUT_ROUNDS) {
+    const { matchups } = deriveBracket(fixtures, scores, koScores);
+    for (const no of round.matches) {
+      const m = matchups.get(no)!;
+      const winner = m.home! < m.away! ? m.home! : m.away!;
+      koScores[no] = winner === m.home ? { home: 1, away: 0 } : { home: 0, away: 1 };
+    }
+  }
+  const actual = deriveBracket(fixtures, scores, koScores);
+  const apiMatches: NormalizedMatch[] = actual.knockoutPredictions.map((k) =>
+    koMatch(stageOfSlot(k.matchNo), k.homeTeam, k.awayTeam, k.predHome, k.predAway),
+  );
+
+  // The SF losers meet in the third-place playoff. Feed it REVERSED (loser of
+  // 102 as the API home side) and level, decided on penalties — this exercises
+  // slot orientation (RU101 is our home) and the API-winner penalty path.
+  const matchups = actual.matchups;
+  const loserOf = (no: number) => {
+    const m = matchups.get(no)!;
+    const s = koScores[no]!;
+    return s.home > s.away ? m.away! : m.home!;
+  };
+  const ru101 = loserOf(101);
+  const ru102 = loserOf(102);
+  apiMatches.push({
+    stage: "THIRD_PLACE",
+    status: "FINISHED",
+    homeApi: ru102,
+    awayApi: ru101,
+    homeGoals: 2,
+    awayGoals: 2,
+    winner: "HOME_TEAM", // ru102 wins the shoot-out
+    kickoff: "2026-07-18T21:00:00Z",
+  });
+
+  const { writes } = deriveActualKnockout(apiMatches, fixtures, scores, canonical);
+  assert.equal(writes.length, 32, "all 31 scored slots + the third-place playoff");
+  const w103 = writes.find((w) => w.match_no === 103)!;
+  assert.equal(w103.home_team, ru101, "slot 103 home is the loser of SF 101");
+  assert.equal(w103.away_team, ru102, "slot 103 away is the loser of SF 102");
+  assert.equal(w103.home_goals, 2);
+  assert.equal(w103.away_goals, 2);
+  assert.equal(w103.penalty_winner, ru102, "penalty winner comes from the API winner field");
+  assert.equal(w103.kickoff, "2026-07-18T21:00:00Z");
+});
+
 test("recovers the R32 field and the bulk of scorelines from the real workbook bracket", () => {
   const buf = loadWorkbook();
   const { parsed, fixtures, scores } = buildFixtures(buf);
