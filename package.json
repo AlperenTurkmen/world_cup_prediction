@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "next lint",
     "test": "tsx --test lib/*.test.ts",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "wrapped:extract": "tsx scripts/wrappedExtract.ts",
+    "wrapped:build": "tsx scripts/buildWrapped.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
