@@ -117,15 +117,15 @@ async function main(): Promise<void> {
   const data = buildWrapped(input);
 
   if (data.meta.warnings.length) {
-    console.error("\n!! KO reconciliation FAILED — the timeline's per-round attribution disagrees with the SQL leaderboard:");
+    console.error("\n!! Reconciliation FAILED — a derived total disagrees with the SQL leaderboard:");
     for (const w of data.meta.warnings) console.error("   " + w);
-    console.error("\nRefusing to write a cache with inconsistent knockout points. Fix lib/wrapped.ts koByRound().");
+    console.error("\nRefusing to write a cache with inconsistent points. Fix lib/wrapped.ts (koByRound or buildReplay).");
     process.exit(1);
   }
 
   writeFileSync(outPath, JSON.stringify(data));
   const sizeKb = (readFileSync(outPath).length / 1024).toFixed(1);
-  console.log(`\n  ✓ reconciliation OK (derived KO == SQL knockout_points for all ${data.users.length})`);
+  console.log(`\n  ✓ reconciliation OK: KO-by-round AND the full chronological replay both match the SQL totals for all ${data.users.length} players`);
   console.log(`  wrote lib/wrappedData.json (${sizeKb} KB)`);
   console.log("\n=== Final ranking ===");
   for (const u of data.users) {

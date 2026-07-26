@@ -83,10 +83,17 @@ function makeInput(): WrappedInput {
 
   // Hand-computed KO points: Ada FINAL(T1,T2)=16 + CHAMPION(T1)=12 => 28;
   // Bo FINAL 16 + champ wrong 0 => 16; Cy FINAL(T1)=8 + champ(T1)=12 => 20.
+  // Ada/Bo predict every group scoreline exactly, so group_points = 6*8 = 48 and
+  // ranking_points = 4 teams * W_RANK_EXACT(3) = 12 (predicted table == actual).
+  // Cy predicts 0-0 everywhere: group_points = sum(scoreGroupMatch(0,0,...)) = 13
+  // (only match 6, T2 0-0 T3, is exact); Cy's all-0-0 table ties every team on
+  // pts=3/gd=0/gf=0, broken alphabetically (T1..T4), which happens to match the
+  // actual table's order exactly here, so ranking_points = 4*3 = 12. Verified
+  // programmatically against lib/groupMatchScore.ts, not just hand-arithmetic.
   const leaderboard = [
     { entry_id: 1, username: "Ada", champion_pick: "T1", group_points: 48, ranking_points: 12, knockout_points: 28, total: 88, exact_count: 6, played_count: 6, champion_correct: 1, created_at: "2026-06-09T00:00:00Z" },
     { entry_id: 2, username: "Bo", champion_pick: "T2", group_points: 48, ranking_points: 12, knockout_points: 16, total: 76, exact_count: 6, played_count: 6, champion_correct: 0, created_at: "2026-06-09T01:00:00Z" },
-    { entry_id: 3, username: "Cy", champion_pick: "T1", group_points: 8, ranking_points: 4, knockout_points: 20, total: 32, exact_count: 1, played_count: 6, champion_correct: 1, created_at: "2026-06-09T02:00:00Z" },
+    { entry_id: 3, username: "Cy", champion_pick: "T1", group_points: 13, ranking_points: 12, knockout_points: 20, total: 45, exact_count: 1, played_count: 6, champion_correct: 1, created_at: "2026-06-09T02:00:00Z" },
   ];
 
   return {
@@ -185,4 +192,37 @@ test("buildWrapped: global champion and single-game hero", () => {
   assert.equal(data.global.champion, "T1");
   assert.equal(data.global.singleGameHero?.game.points, 8);
   assert.equal(data.meta.playerCount, 3);
+});
+
+test("buildWrapped: full replay reconciles to the official total and is chronological", () => {
+  const data = buildWrapped(makeInput(), "2026-07-26T00:00:00Z");
+  assert.deepEqual(data.meta.warnings, []); // includes the replay's own reconciliation check
+
+  const { replay } = data.global;
+  assert.equal(replay.usernames.length, 3);
+
+  // Strictly non-decreasing timestamps across the whole event stream.
+  for (let i = 1; i < replay.points.length; i++) {
+    assert.ok(
+      new Date(replay.points[i].at).getTime() >= new Date(replay.points[i - 1].at).getTime(),
+    );
+  }
+
+  // The origin point starts everyone at zero.
+  assert.deepEqual(replay.points[0].cumulative, replay.usernames.map(() => 0));
+
+  // The final event's cumulative equals each player's official total, in the
+  // same order as replay.usernames (final-rank order).
+  const last = replay.points[replay.points.length - 1];
+  for (let i = 0; i < replay.usernames.length; i++) {
+    const u = data.users.find((x) => x.username === replay.usernames[i])!;
+    assert.equal(last.cumulative[i], u.total);
+  }
+
+  // Cumulative totals never decrease (every event only adds points, never subtracts).
+  for (let i = 1; i < replay.points.length; i++) {
+    for (let j = 0; j < replay.usernames.length; j++) {
+      assert.ok(replay.points[i].cumulative[j] >= replay.points[i - 1].cumulative[j]);
+    }
+  }
 });

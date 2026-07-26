@@ -315,6 +315,26 @@ export interface GlobalWrapped {
     }[];
     leadChanges: { checkpoint: string; leader: string; from: string | null }[];
   };
+  /** Full chronological event-by-event replay (docs/WRAPPED_PLAN.md §6 option a),
+   *  for the animated race — one point per scoring event across the whole
+   *  tournament, not just the six phase checkpoints. */
+  replay: Replay;
+}
+
+export interface ReplayPoint {
+  /** ISO timestamp of the event this point represents. */
+  at: string;
+  /** Short human label, e.g. a fixture "Brazil v Croatia" or "R16 advancers confirmed". */
+  label: string;
+  kind: "group" | "ranking" | "advancement" | "tour" | "champion";
+  /** Cumulative total per player immediately after this event, aligned to Replay.usernames. */
+  cumulative: number[];
+}
+
+export interface Replay {
+  /** Player order for the `cumulative` arrays — final-rank order, matching timeline.series. */
+  usernames: string[];
+  points: ReplayPoint[];
 }
 
 export interface WrappedMeta {
@@ -443,6 +463,14 @@ function scoreLineWeightsFrom(rows: DbScoringWeight[]): ScoringWeights {
   };
 }
 
+function rankWeightsFrom(rows: DbScoringWeight[]): { W_RANK_EXACT: number; W_RANK_ADJACENT: number } {
+  const map = new Map(rows.map((r) => [r.key, r.value]));
+  return {
+    W_RANK_EXACT: map.get("W_RANK_EXACT") ?? 3,
+    W_RANK_ADJACENT: map.get("W_RANK_ADJACENT") ?? 1,
+  };
+}
+
 // =============================================================================
 // Main
 // =============================================================================
@@ -493,6 +521,15 @@ export function buildWrapped(
       const m = matchById.get(p.match_id);
       if (m) ineligibleSet.add(m.match_no);
     }
+  }
+  // Groups with at least one ineligible match never score ranking points for
+  // ANYONE (mirrors the SQL's entry_group_eligible.all_eligible gate) — used by
+  // the replay engine below to skip those groups' ranking events entirely.
+  const ineligibleGroups = new Set<string>();
+  for (const no of ineligibleSet) {
+    const m = matchByNo.get(no);
+    const letter = m ? teamGroup.get(m.home_team) : undefined;
+    if (letter) ineligibleGroups.add(letter);
   }
 
   // ---- Actual standings & advancers ----------------------------------------
@@ -1037,6 +1074,40 @@ export function buildWrapped(
   }
 
   // =========================================================================
+  // Full chronological replay + its own reconciliation against board.total
+  // =========================================================================
+  const rankWeights = rankWeightsFrom(input.scoringWeights);
+  const replay = buildReplay({
+    users,
+    matches: input.matches,
+    actualKnockout: input.actualKnockout,
+    gamePicks,
+    teamGroup,
+    actualStandings,
+    predStandingsByEntry,
+    ineligibleGroups,
+    advPredByEntry,
+    advancersByRound,
+    roundWeight,
+    tourByEntry,
+    koPredByEntry,
+    weights,
+    rankWeights,
+    koRoundDeadline,
+  });
+  {
+    const last = replay.points[replay.points.length - 1];
+    replay.usernames.forEach((username, idx) => {
+      const u = users.find((x) => x.username === username)!;
+      if (last.cumulative[idx] !== u.total) {
+        warnings.push(
+          `Replay reconciliation mismatch for ${username}: derived ${last.cumulative[idx]} vs total ${u.total}`,
+        );
+      }
+    });
+  }
+
+  // =========================================================================
   // Timeline (snapshot checkpoints)
   // =========================================================================
   const checkpoints = [...TIMELINE_CHECKPOINTS];
@@ -1102,6 +1173,7 @@ export function buildWrapped(
     groupAwayWins,
     boardByEntry,
     checkpoints,
+    replay,
   });
 
   return {
@@ -1135,26 +1207,57 @@ const PERSONA_DEFS: { key: string; emoji: string; name: string; report: string }
   { key: "analyst", emoji: "🧮", name: "The Analyst", report: "Reads groups like a spreadsheet — the sharpest final-table forecaster." },
 ];
 
+/**
+ * Min-max normalize to 0..1 using the REAL gap between values (not ordinal
+ * position). Ordinal ranking forces evenly-spaced 0/0.25/0.5/0.75/1 scores
+ * regardless of how close the underlying stats actually are, which manufactures
+ * spurious ties between unrelated signals (e.g. two different persona axes both
+ * reading exactly 1.0 for the same user, purely because each is *a* leader, with
+ * no way to tell which lead is more real). Preserving the true gap lets ties
+ * only occur when the underlying stats are genuinely tied.
+ */
+function minMaxNormalize(vals: number[], higherIsBetter: boolean): number[] {
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const range = max - min;
+  return vals.map((v) => {
+    if (range === 0) return 1; // everyone tied — everyone "has" the trait equally
+    const t = (v - min) / range;
+    return higherIsBetter ? t : 1 - t;
+  });
+}
+
+/** Short human clause for the stat behind a persona, used in scouting reports. */
+function traitClause(personaKey: string, u: UserWrapped): string {
+  switch (personaKey) {
+    case "precisionist":
+      return `${u.exactCountRaw} exact scorelines`;
+    case "gambler":
+      return "wild swings across every phase";
+    case "chalk":
+      return `sided with the pool ${72 - u.maverickScore}/72 times`;
+    case "optimist":
+      return `${u.goalsPerGame.toFixed(2)} goals/game`;
+    case "analyst":
+      return `${u.rankExact}/48 exact group finishes`;
+    default:
+      return "";
+  }
+}
+
 function assignPersonas(users: UserWrapped[]): void {
-  const n = users.length;
-  const rank = (vals: number[]): number[] => {
-    // higher value = better; returns 0..1 normalized rank
-    const order = vals.map((v, i) => [v, i] as [number, number]).sort((a, b) => a[0] - b[0]);
-    const out = new Array(vals.length).fill(0);
-    order.forEach(([, i], idx) => (out[i] = n > 1 ? idx / (n - 1) : 1));
-    return out;
-  };
   const variance = users.map((u) => {
     const vals = u.phasePoints.map((p) => p.points);
     const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
     return vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
   });
-  const precision = rank(users.map((u) => u.exactCountRaw));
-  const maverick = rank(users.map((u) => u.maverickScore));
-  const chalk = rank(users.map((u) => -u.maverickScore));
-  const optimist = rank(users.map((u) => u.goalsPerGame));
-  const analyst = rank(users.map((u) => u.rankExact));
-  const gambler = rank(users.map((u, i) => maverick[i] * 0.5 + rank(variance)[i] * 0.5));
+  const precision = minMaxNormalize(users.map((u) => u.exactCountRaw), true);
+  const chalk = minMaxNormalize(users.map((u) => u.maverickScore), false); // low maverick = high chalk
+  const maverickRaw = minMaxNormalize(users.map((u) => u.maverickScore), true);
+  const varianceNorm = minMaxNormalize(variance, true);
+  const optimist = minMaxNormalize(users.map((u) => u.goalsPerGame), true);
+  const analyst = minMaxNormalize(users.map((u) => u.rankExact), true);
+  const gambler = users.map((_, i) => maverickRaw[i] * 0.5 + varianceNorm[i] * 0.5);
 
   const signals: Record<string, number[]> = {
     precisionist: precision,
@@ -1163,15 +1266,24 @@ function assignPersonas(users: UserWrapped[]): void {
     optimist,
     analyst,
   };
+  const personaKeys = Object.keys(signals);
 
-  // greedy: strongest (user, persona) signal first, each used once
-  const candidates: { user: number; persona: string; score: number }[] = [];
-  users.forEach((_, ui) => {
-    for (const key of Object.keys(signals)) {
-      candidates.push({ user: ui, persona: key, score: signals[key][ui] });
-    }
-  });
-  candidates.sort((a, b) => b.score - a.score || a.user - b.user);
+  // Greedy match, but the tie-break for a genuine tie (same normalized value —
+  // only possible when the underlying stat itself is tied, or when a user leads
+  // more than one signal at 1.0) is each candidate's MARGIN over the field's
+  // runner-up on that specific axis: the trait that is more uniquely theirs
+  // wins, instead of an arbitrary object-key iteration order.
+  const candidates: { user: number; persona: string; value: number; margin: number }[] = [];
+  for (const key of personaKeys) {
+    const vals = signals[key];
+    const sorted = [...vals].sort((a, b) => b - a);
+    vals.forEach((v, ui) => {
+      const runnerUp = v === sorted[0] ? (sorted[1] ?? 0) : sorted[0];
+      candidates.push({ user: ui, persona: key, value: v, margin: v - runnerUp });
+    });
+  }
+  candidates.sort((a, b) => b.value - a.value || b.margin - a.margin || a.user - b.user);
+
   const takenUser = new Set<number>();
   const takenPersona = new Set<string>();
   for (const c of candidates) {
@@ -1179,13 +1291,235 @@ function assignPersonas(users: UserWrapped[]): void {
     takenUser.add(c.user);
     takenPersona.add(c.persona);
     const def = PERSONA_DEFS.find((d) => d.key === c.persona)!;
-    users[c.user].persona = {
-      key: def.key,
-      emoji: def.emoji,
-      name: def.name,
-      scoutingReport: def.report,
-    };
+    users[c.user].persona = { key: def.key, emoji: def.emoji, name: def.name, scoutingReport: def.report };
   }
+
+  // Double-threat callout: if a user's best UNASSIGNED signal is nearly as
+  // strong as their assigned one (they were a real near-miss for that badge
+  // too, not just a distant also-ran), name it in the report.
+  users.forEach((u, ui) => {
+    const assignedKey = u.persona.key;
+    let bestOther: { key: string; value: number } | null = null;
+    for (const key of personaKeys) {
+      if (key === assignedKey) continue;
+      const v = signals[key][ui];
+      if (!bestOther || v > bestOther.value) bestOther = { key, value: v };
+    }
+    const assignedValue = signals[assignedKey][ui];
+    if (bestOther && bestOther.value >= 0.85 && assignedValue - bestOther.value < 0.1) {
+      const otherDef = PERSONA_DEFS.find((d) => d.key === bestOther!.key)!;
+      u.persona.scoutingReport += ` Nearly ${otherDef.name} too — ${traitClause(bestOther.key, u)}.`;
+    }
+  });
+}
+
+// =============================================================================
+// Full chronological replay (docs/WRAPPED_PLAN.md §6, option a)
+// =============================================================================
+//
+// Unlike the six-checkpoint snapshot timeline above, this replays EVERY scoring
+// event in kickoff order — each of the 72 group games, each group's standings
+// locking in at its 6th match, each knockout round's advancement resolving once
+// the previous round's games are all underway, and each of the 32 knockout
+// games' tour/foresight points — so the race can be drawn (and animated)
+// continuously rather than jumping between six lumps. Reconciliation against the
+// official per-user total is enforced by the caller (buildWrapped), the same way
+// the by-round knockout split is.
+
+interface ReplayArgs {
+  users: UserWrapped[]; // final order matters: output is sorted by final rank
+  matches: DbMatch[];
+  actualKnockout: DbActualKnockout[];
+  gamePicks: Map<number, Map<number, UserGamePick>>;
+  teamGroup: Map<string, string>;
+  actualStandings: Map<string, StandingRow>;
+  predStandingsByEntry: Map<number, Map<string, StandingRow>>;
+  ineligibleGroups: Set<string>;
+  advPredByEntry: Map<number, Map<AdvRound, Set<string>>>;
+  advancersByRound: Map<AdvRound, Set<string>>;
+  roundWeight: Map<string, number>;
+  tourByEntry: Map<number, DbTourPrediction[]>;
+  koPredByEntry: Map<number, DbKnockoutPrediction[]>;
+  weights: ScoringWeights;
+  rankWeights: { W_RANK_EXACT: number; W_RANK_ADJACENT: number };
+  /** First kickoff per KO round — the tour-pick fairness deadline (already
+   *  computed once in buildWrapped; reused here rather than recomputed). */
+  koRoundDeadline: Map<KoRound, number>;
+}
+
+interface ReplayEvent {
+  at: number; // epoch ms
+  label: string;
+  kind: ReplayPoint["kind"];
+  deltas: number[]; // aligned to Replay.usernames
+}
+
+function buildReplay(args: ReplayArgs): Replay {
+  const {
+    users,
+    matches,
+    actualKnockout,
+    gamePicks,
+    teamGroup,
+    actualStandings,
+    predStandingsByEntry,
+    ineligibleGroups,
+    advPredByEntry,
+    advancersByRound,
+    roundWeight,
+    tourByEntry,
+    koPredByEntry,
+    weights,
+    rankWeights,
+    koRoundDeadline,
+  } = args;
+
+  const ordered = users.slice().sort((a, b) => a.rank - b.rank);
+  const usernames = ordered.map((u) => u.username);
+  const idxOf = new Map(ordered.map((u, i) => [u.entryId, i]));
+  const zeroDeltas = () => new Array(usernames.length).fill(0);
+
+  const events: ReplayEvent[] = [];
+
+  // ---- (a) each group match, at its own kickoff -----------------------------
+  const playedGroup = matches.filter(
+    (m) => m.home_goals !== null && m.away_goals !== null && m.kickoff_at,
+  );
+  for (const m of playedGroup) {
+    const deltas = zeroDeltas();
+    for (const [entryId, idx] of idxOf) {
+      const pick = gamePicks.get(entryId)?.get(m.match_no);
+      if (pick?.eligible) deltas[idx] = pick.points;
+    }
+    events.push({
+      at: new Date(m.kickoff_at!).getTime(),
+      label: `${m.home_team} v ${m.away_team}`,
+      kind: "group",
+      deltas,
+    });
+  }
+
+  // ---- (b) each group's ranking, locked in at its 6th match's kickoff -------
+  const groupMatchesByLetter = new Map<string, DbMatch[]>();
+  for (const m of playedGroup) {
+    const letter = teamGroup.get(m.home_team);
+    if (!letter) continue;
+    const list = groupMatchesByLetter.get(letter) ?? [];
+    list.push(m);
+    groupMatchesByLetter.set(letter, list);
+  }
+  for (const [letter, ms] of groupMatchesByLetter) {
+    if (ms.length < 6 || ineligibleGroups.has(letter)) continue;
+    const at = Math.max(...ms.map((m) => new Date(m.kickoff_at!).getTime()));
+    const teams = [...new Set(ms.flatMap((m) => [m.home_team, m.away_team]))];
+    const deltas = zeroDeltas();
+    for (const [entryId, idx] of idxOf) {
+      const predSt = predStandingsByEntry.get(entryId);
+      let pts = 0;
+      for (const team of teams) {
+        const actual = actualStandings.get(team);
+        const pr = predSt?.get(team);
+        if (!actual || !pr) continue;
+        if (pr.rank === actual.rank) pts += rankWeights.W_RANK_EXACT;
+        else if (Math.abs(pr.rank - actual.rank) === 1) pts += rankWeights.W_RANK_ADJACENT;
+      }
+      deltas[idx] = pts;
+    }
+    events.push({ at, label: `Group ${letter} table locks in`, kind: "ranking", deltas });
+  }
+
+  // ---- (c) advancement + champion, each credited once the PRECEDING round's
+  //          games are all underway (approximated by that round's last kickoff,
+  //          since we don't have final-whistle timestamps) ------------------
+  const groupsEndAt = Math.max(...playedGroup.map((m) => new Date(m.kickoff_at!).getTime()));
+  const koMaxKickoffByRound = new Map<KoRound, number>();
+  for (const k of actualKnockout) {
+    const r = koRoundOf(k.match_no);
+    if (!r || !k.kickoff_at) continue;
+    const t = new Date(k.kickoff_at).getTime();
+    koMaxKickoffByRound.set(r, Math.max(koMaxKickoffByRound.get(r) ?? -Infinity, t));
+  }
+  const advTrigger: Record<AdvRound, number> = {
+    R32: groupsEndAt,
+    R16: koMaxKickoffByRound.get("R32") ?? groupsEndAt,
+    QF: koMaxKickoffByRound.get("R16") ?? groupsEndAt,
+    SF: koMaxKickoffByRound.get("QF") ?? groupsEndAt,
+    FINAL: koMaxKickoffByRound.get("SF") ?? groupsEndAt,
+    CHAMPION: koMaxKickoffByRound.get("FINAL") ?? groupsEndAt,
+  };
+  for (const round of ["R32", "R16", "QF", "SF", "FINAL"] as AdvRound[]) {
+    const w = roundWeight.get(round) ?? 0;
+    const deltas = zeroDeltas();
+    for (const [entryId, idx] of idxOf) {
+      const pset = advPredByEntry.get(entryId)?.get(round) ?? new Set<string>();
+      let correct = 0;
+      for (const team of pset) if (advancersByRound.get(round)?.has(team)) correct++;
+      deltas[idx] = correct * w;
+    }
+    events.push({ at: advTrigger[round], label: `${round} advancers confirmed`, kind: "advancement", deltas });
+  }
+  {
+    const w = roundWeight.get("CHAMPION") ?? 0;
+    const deltas = zeroDeltas();
+    for (const [entryId, idx] of idxOf) {
+      const pick = [...(advPredByEntry.get(entryId)?.get("CHAMPION") ?? [])][0];
+      if (pick && advancersByRound.get("CHAMPION")?.has(pick)) deltas[idx] = w;
+    }
+    events.push({ at: advTrigger.CHAMPION, label: "Champion crowned", kind: "champion", deltas });
+  }
+
+  // ---- (d) each knockout game's tour + foresight points, at its own kickoff --
+  for (const k of actualKnockout) {
+    if (k.home_goals === null || k.away_goals === null || !k.kickoff_at) continue;
+    const round = koRoundOf(k.match_no);
+    if (!round) continue;
+    const deadline = koRoundDeadline.get(round);
+    const deltas = zeroDeltas();
+    for (const [entryId, idx] of idxOf) {
+      let pts = 0;
+      const t = tourByEntry.get(entryId)?.find((x) => x.match_no === k.match_no);
+      if (t && (deadline === undefined || new Date(t.updated_at).getTime() < deadline)) {
+        pts += scoreGroupMatch(t.pred_home, t.pred_away, k.home_goals, k.away_goals, weights).points;
+      }
+      if (round !== "THIRD") {
+        const kp = koPredByEntry.get(entryId)?.find((x) => x.match_no === k.match_no);
+        if (
+          kp?.is_score_eligible &&
+          kp.home_team === k.home_team &&
+          kp.away_team === k.away_team &&
+          kp.pred_home === k.home_goals &&
+          kp.pred_away === k.away_goals
+        ) {
+          pts += roundWeight.get(round) ?? 0;
+        }
+      }
+      deltas[idx] = pts;
+    }
+    events.push({
+      at: new Date(k.kickoff_at).getTime(),
+      label: `${k.home_team ?? "?"} v ${k.away_team ?? "?"}`,
+      kind: "tour",
+      deltas,
+    });
+  }
+
+  // ---- sort chronologically and integrate into cumulative totals -----------
+  events.sort((a, b) => a.at - b.at);
+  const running = zeroDeltas();
+  const points: ReplayPoint[] = [
+    {
+      at: new Date((events[0]?.at ?? Date.now()) - 1000).toISOString(),
+      label: "Kickoff",
+      kind: "group",
+      cumulative: [...running],
+    },
+  ];
+  for (const ev of events) {
+    for (let i = 0; i < running.length; i++) running[i] += ev.deltas[i];
+    points.push({ at: new Date(ev.at).toISOString(), label: ev.label, kind: ev.kind, cumulative: [...running] });
+  }
+
+  return { usernames, points };
 }
 
 // =============================================================================
@@ -1212,6 +1546,7 @@ interface GlobalArgs {
   groupAwayWins: number;
   boardByEntry: Map<number, DbLeaderboardRow>;
   checkpoints: string[];
+  replay: Replay;
 }
 
 function buildGlobal(a: GlobalArgs): GlobalWrapped {
@@ -1230,6 +1565,7 @@ function buildGlobal(a: GlobalArgs): GlobalWrapped {
     advPredByEntry,
     actualDepth,
     boardByEntry,
+    replay,
   } = a;
 
   const byUsername = new Map(users.map((u) => [u.username, u]));
@@ -1614,5 +1950,6 @@ function buildGlobal(a: GlobalArgs): GlobalWrapped {
       },
     },
     timeline: { checkpoints: a.checkpoints, series, leadChanges },
+    replay,
   };
 }

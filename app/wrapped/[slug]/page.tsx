@@ -3,8 +3,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { wrapped, userBySlug, colorFor, DEPTH_LABEL, ordinal, MEDALS } from "../shared";
 import { Section, Card, Stat, BreakdownBar, Pill, Score } from "../ui";
-import Timeline from "../Timeline";
+import ReplayRace from "../ReplayRace";
 import ShareCard from "./ShareCard";
+import StoryDeck from "./StoryDeck";
 
 // Frozen dataset → statically prerender each player's page at build time.
 export const dynamic = "force-static";
@@ -89,6 +90,13 @@ export default async function PersonalWrappedPage({
           </div>
         </div>
       </header>
+
+      {/* ── Swipeable highlights ── */}
+      <div className="mt-8">
+        <StoryDeck user={u} meta={wrapped.meta} color={color} />
+      </div>
+
+      {/* ── Everything below is the full appendix — same stats, unhurried ── */}
 
       {/* ── Points breakdown ── */}
       <Section title="Where your points came from">
@@ -321,7 +329,7 @@ export default async function PersonalWrappedPage({
       {/* ── Your race ── */}
       <Section title="Your race" subtitle={`Peaked at ${ordinal(peakRank)}. Finished ${ordinal(u.rank)}.`}>
         <Card>
-          <Timeline timeline={wrapped.global.timeline} highlight={u.username} />
+          <ReplayRace replay={wrapped.global.replay} highlight={u.username} />
         </Card>
         <div className="mt-2 text-sm opacity-70">
           Submitted {new Date(u.submittedAt).toISOString().slice(0, 10)} — {ordinal(u.submissionRank)} of{" "}

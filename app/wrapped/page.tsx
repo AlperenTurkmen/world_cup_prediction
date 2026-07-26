@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { wrapped, colorFor, MEDALS, DEPTH_LABEL } from "./shared";
 import { Section, Card, Stat, BreakdownBar, Pill, Score } from "./ui";
-import Timeline from "./Timeline";
+import ReplayRace from "./ReplayRace";
 import AgreementHeatmap from "./AgreementHeatmap";
 
 export const metadata: Metadata = {
@@ -149,9 +149,9 @@ export default function WrappedGlobalPage() {
       </Section>
 
       {/* ── The race ── */}
-      <Section title="The race" subtitle="Cumulative score after each phase. Where the lead changed hands.">
+      <Section title="The race" subtitle="Every scoring event of the tournament, in order — drag the scrubber or hit play.">
         <Card>
-          <Timeline timeline={global.timeline} />
+          <ReplayRace replay={global.replay} />
         </Card>
         <div className="mt-3 flex flex-wrap gap-2">
           {global.timeline.leadChanges.map((lc, i) => (
